@@ -1,0 +1,6 @@
+{
+  "name": "TRADE LENS",
+  "description": "Trading bot platform featuring free and pro bookmarklet bots, multi-channel payments, and admin approval management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
