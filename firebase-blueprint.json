@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "collections": {
+    "users": {
+      "description": "Registered user accounts and their Trade Lens Pro status",
+      "fields": {
+        "email": { "type": "string", "description": "User Gmail address" },
+        "status": {
+          "type": "string",
+          "description": "active | pending | approved | rejected | removed"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role of the user, e.g. 'admin' or 'user'"
+        },
+        "created": { "type": "string", "description": "Human-readable creation timestamp" },
+        "createdAt": { "type": "string", "description": "ISO timestamp" },
+        "payment": {
+          "type": "map",
+          "description": "Latest payment details submitted by the user",
+          "fields": {
+            "amount": { "type": "number" },
+            "method": { "type": "string" },
+            "transactionId": { "type": "string" },
+            "date": { "type": "string" }
+          }
+        }
+      }
+    },
+    "paymentRequests": {
+      "description": "Shared cross-device payment requests queue for admin review",
+      "fields": {
+        "userEmail": { "type": "string", "description": "Email of user submitting payment" },
+        "userId": { "type": "string", "description": "User identifier or email key" },
+        "amount": { "type": "number", "description": "Payment amount ($15 to $30)" },
+        "method": { "type": "string", "description": "Binance | bKash | Nagad" },
+        "transactionId": { "type": "string", "description": "User entered transaction reference" },
+        "status": { "type": "string", "description": "pending | approved | rejected" },
+        "date": { "type": "string", "description": "Formatted date" },
+        "createdAt": { "type": "string", "description": "ISO creation timestamp" }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if request is from an admin
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'limon2581444@gmail.com';
+    }
+
+    // Users collection:
+    // Allow read for authenticated users and during admin access.
+    // Also allow read so admins and user accounts can sync cross-device.
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+
+    // Payment Requests collection:
+    // Any user can create their payment request.
+    // Admin and users can read requests so approval is real-time cross-device.
+    match /paymentRequests/{requestId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+  }
+}

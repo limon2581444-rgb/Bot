@@ -127,6 +127,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <th className="p-3.5">User Email</th>
                   <th className="p-3.5">Amount</th>
                   <th className="p-3.5">Method</th>
+                  <th className="p-3.5">Trx Code / ID</th>
                   <th className="p-3.5">Date Submitted</th>
                   <th className="p-3.5 text-right">Actions</th>
                 </tr>
@@ -144,6 +145,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <span className="px-2 py-0.5 rounded bg-purple-900/50 text-purple-200 border border-purple-700/50 text-xs">
                           {u.payment?.method || '-'}
                         </span>
+                      </td>
+                      <td className="p-3.5 font-mono text-cyan-300 text-xs select-all">
+                        {u.payment?.transactionId || '—'}
                       </td>
                       <td className="p-3.5 text-slate-400 text-xs">{u.payment?.date || '-'}</td>
                       <td className="p-3.5 text-right space-x-2 whitespace-nowrap">
@@ -168,7 +172,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-400 text-xs">
+                    <td colSpan={7} className="p-8 text-center text-slate-400 text-xs">
                       No pending payment requests awaiting review.
                     </td>
                   </tr>

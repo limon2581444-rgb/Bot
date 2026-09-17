@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Page, PaymentInfo } from './types';
-import { ADMIN_EMAIL, ADMIN_PASSWORD, INITIAL_USERS } from './data/constants';
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from './data/constants';
 import { Header } from './components/Header';
 import { Toast } from './components/Toast';
 import { AuthViews } from './components/AuthViews';
@@ -10,31 +10,32 @@ import { PaidBotView } from './components/PaidBotView';
 import { PaymentView } from './components/PaymentView';
 import { StatusViews } from './components/StatusViews';
 import { AdminPanel } from './components/AdminPanel';
+import {
+  registerWithFirebase,
+  loginWithFirebase,
+  adminLoginWithFirebase,
+  logoutFromFirebase,
+  submitPaymentToFirebase,
+  approvePaymentInFirebase,
+  rejectPaymentInFirebase,
+  removeUserInFirebase,
+  subscribeToCurrentUser,
+  subscribeToAllUsers,
+} from './lib/firebaseDb';
 
 export default function App() {
-  // Load users from localStorage or initial demo data
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const saved = localStorage.getItem('tl_users');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (e) {
-      console.error('Error loading users from storage', e);
-    }
-    return INITIAL_USERS;
-  });
+  // Shared real-time users from Firebase Firestore
+  const [users, setUsers] = useState<User[]>([]);
 
-  // Load current active user
+  // Current authenticated user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
-      const saved = localStorage.getItem('tl_currentUser');
+      const saved = localStorage.getItem('tl_current_session');
       if (saved) {
         return JSON.parse(saved);
       }
     } catch (e) {
-      console.error('Error loading current user from storage', e);
+      console.error('Error loading session cache', e);
     }
     return null;
   });
@@ -42,37 +43,70 @@ export default function App() {
   // Active page route
   const [page, setPage] = useState<Page>(() => {
     try {
-      const savedUser = localStorage.getItem('tl_currentUser');
-      return savedUser ? 'dashboard' : 'login';
-    } catch {
-      return 'login';
-    }
+      const saved = localStorage.getItem('tl_current_session');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.role === 'admin') return 'admin';
+        return 'dashboard';
+      }
+    } catch {}
+    return 'login';
   });
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Synchronize users to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('tl_users', JSON.stringify(users));
-    } catch (e) {
-      console.error('Failed to save users', e);
-    }
-  }, [users]);
-
-  // Synchronize currentUser to localStorage
+  // Sync session cache
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem('tl_currentUser', JSON.stringify(currentUser));
+        localStorage.setItem('tl_current_session', JSON.stringify(currentUser));
       } else {
-        localStorage.removeItem('tl_currentUser');
+        localStorage.removeItem('tl_current_session');
       }
     } catch (e) {
-      console.error('Failed to save current user', e);
+      console.error('Failed to sync session', e);
     }
   }, [currentUser]);
+
+  // Real-time listener for all users (ensures Phone A payment request instantly shows on Phone B Admin Panel)
+  useEffect(() => {
+    // Only subscribe to all users if current user is admin or on admin page
+    if (page === 'admin' || currentUser?.role === 'admin') {
+      const unsubscribe = subscribeToAllUsers((firestoreUsers) => {
+        setUsers(firestoreUsers);
+      });
+      return () => unsubscribe();
+    }
+  }, [page, currentUser?.role]);
+
+  // Real-time listener for current logged-in user
+  // When Admin on Phone B approves, Phone A user's status updates in real-time and unlocks Pro Future
+  useEffect(() => {
+    if (!currentUser?.id && !currentUser?.email) return;
+
+    // Listen by ID if available
+    if (currentUser.id && currentUser.id !== 'admin_master') {
+      const unsubscribe = subscribeToCurrentUser(currentUser.id, (updated) => {
+        setCurrentUser((prev) => {
+          if (!prev) return updated;
+          return {
+            ...prev,
+            ...updated,
+          };
+        });
+
+        // If status changed to approved and user was waiting on pending screen, notify and unlock
+        if (updated.status === 'approved' && page === 'pending') {
+          showToast('🎉 Your payment has been approved! Pro Future unlocked.');
+          setPage('pro');
+        } else if (updated.status === 'removed') {
+          setPage('denied');
+        }
+      });
+      return () => unsubscribe();
+    }
+  }, [currentUser?.id, page]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -81,105 +115,96 @@ export default function App() {
     }, 2500);
   };
 
-  // User Login Handler
-  const handleLogin = (email: string, pass: string): boolean => {
-    const found = users.find(
-      (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === pass
-    );
-
-    if (!found) {
+  // User Login Handler (Cross-device Firebase Auth & Firestore)
+  const handleLogin = async (email: string, pass: string): Promise<boolean> => {
+    const res = await loginWithFirebase(email, pass);
+    if (!res.success || !res.user) {
+      showToast(res.error || 'Invalid Gmail or password');
       return false;
     }
 
-    const sessionUser: User = {
-      email: found.email,
-      status: found.status,
-      payment: found.payment,
-    };
+    const loggedUser = res.user;
+    setCurrentUser(loggedUser);
 
-    setCurrentUser(sessionUser);
-
-    if (found.status === 'removed') {
+    if (loggedUser.status === 'removed') {
       setPage('denied');
     } else {
       setPage('dashboard');
     }
 
-    showToast(`Welcome back, ${found.email.split('@')[0]}`);
+    showToast(`Welcome back, ${loggedUser.email.split('@')[0]}`);
     return true;
   };
 
-  // User Registration Handler
-  const handleRegister = (email: string, pass: string): boolean => {
-    const exists = users.some(
-      (u) => u.email.toLowerCase() === email.toLowerCase()
-    );
-
-    if (exists) {
+  // User Registration Handler (Cross-device Firebase Auth & Firestore)
+  const handleRegister = async (email: string, pass: string): Promise<boolean> => {
+    const res = await registerWithFirebase(email, pass);
+    if (!res.success || !res.user) {
+      showToast(res.error || 'Registration failed');
       return false;
     }
 
-    const newUser: User = {
-      email,
-      password: pass,
-      status: 'active',
-      payment: null,
-      created: new Date().toLocaleString(),
-    };
-
-    setUsers((prev) => [...prev, newUser]);
-    setCurrentUser({
-      email: newUser.email,
-      status: newUser.status,
-      payment: null,
-    });
+    setCurrentUser(res.user);
     setPage('dashboard');
+    showToast('Registration successful! Welcome to Trade Lens');
     return true;
   };
 
   // Admin Login Handler
-  const handleAdminLogin = (email: string, pass: string): boolean => {
-    if (email === ADMIN_EMAIL && pass === ADMIN_PASSWORD) {
-      setPage('admin');
-      return true;
+  const handleAdminLogin = async (email: string, pass: string): Promise<boolean> => {
+    const res = await adminLoginWithFirebase(email, pass);
+    if (!res.success || !res.user) {
+      showToast(res.error || 'Invalid admin credentials');
+      return false;
     }
-    return false;
+
+    setCurrentUser(res.user);
+    setPage('admin');
+    showToast('Admin access granted');
+    return true;
   };
 
   // User Sign Out
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await logoutFromFirebase();
     setCurrentUser(null);
     setPage('login');
     showToast('Signed out successfully');
   };
 
   // Admin Logout
-  const handleLogoutAdmin = () => {
+  const handleLogoutAdmin = async () => {
+    await logoutFromFirebase();
+    setCurrentUser(null);
     setPage('adminLogin');
     showToast('Admin signed out');
   };
 
-  // Submit Payment
-  const handleSubmitPayment = (payment: PaymentInfo) => {
+  // Submit Payment Request (Saves directly to Firebase Firestore for cross-device visibility)
+  const handleSubmitPayment = async (payment: PaymentInfo) => {
     if (!currentUser) return;
 
-    const updatedUser: User = {
-      ...currentUser,
-      status: 'pending',
-      payment,
-    };
+    try {
+      const userId = currentUser.id || currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
+      await submitPaymentToFirebase(userId, currentUser.email, payment);
 
-    setCurrentUser(updatedUser);
+      // Optimistically update current local state while Firestore listener confirms
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'pending',
+              payment,
+            }
+          : null
+      );
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.email.toLowerCase() === currentUser.email.toLowerCase()
-          ? { ...u, status: 'pending', payment }
-          : u
-      )
-    );
-
-    setPage('pending');
+      setPage('pending');
+      showToast('Payment request submitted to Firebase! Awaiting admin approval.');
+    } catch (err: any) {
+      console.error('Failed to submit payment:', err);
+      showToast('Failed to send payment request to cloud database.');
+    }
   };
 
   // Paid Bot Decision Flow
@@ -207,86 +232,68 @@ export default function App() {
     setPage('paid');
   };
 
-  // Admin: Approve User Payment
-  const handleApproveUser = (email: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.email.toLowerCase() === email.toLowerCase()
-          ? { ...u, status: 'approved' }
-          : u
-      )
-    );
-
-    if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-      setCurrentUser((prev) => (prev ? { ...prev, status: 'approved' } : null));
+  // Admin: Approve User Payment (Updates Firebase in real-time)
+  const handleApproveUser = async (email: string) => {
+    try {
+      await approvePaymentInFirebase(email);
+      showToast(`Approved Pro Future access for ${email}`);
+    } catch (err) {
+      console.error('Approve error', err);
+      showToast('Error approving user in Firebase');
     }
-
-    showToast(`Approved Pro Future access for ${email}`);
   };
 
-  // Admin: Reject User Payment
-  const handleRejectUser = (email: string) => {
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.email.toLowerCase() === email.toLowerCase()
-          ? { ...u, status: 'rejected' }
-          : u
-      )
-    );
-
-    if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-      setCurrentUser((prev) => (prev ? { ...prev, status: 'rejected' } : null));
+  // Admin: Reject User Payment (Updates Firebase in real-time)
+  const handleRejectUser = async (email: string) => {
+    try {
+      await rejectPaymentInFirebase(email);
+      showToast(`Payment request for ${email} was rejected`);
+    } catch (err) {
+      console.error('Reject error', err);
+      showToast('Error rejecting user in Firebase');
     }
-
-    showToast(`Payment request for ${email} was rejected`);
   };
 
-  // Admin: Remove User / Revoke Access
-  const handleRemoveUser = (email: string) => {
+  // Admin: Remove User / Revoke Access (Updates Firebase in real-time)
+  const handleRemoveUser = async (email: string) => {
     if (!window.confirm(`Revoke and remove trading privileges for ${email}?`)) {
       return;
     }
 
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.email.toLowerCase() === email.toLowerCase()
-          ? { ...u, status: 'removed' }
-          : u
-      )
-    );
-
-    if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-      setCurrentUser((prev) => (prev ? { ...prev, status: 'removed' } : null));
+    try {
+      await removeUserInFirebase(email);
+      showToast(`Revoked access for ${email}`);
+    } catch (err) {
+      console.error('Remove error', err);
+      showToast('Error removing user');
     }
-
-    showToast(`Revoked access for ${email}`);
   };
 
-  // Admin: Add sample test user
-  const handleAddTestUser = () => {
+  // Admin: Add sample test user in cloud
+  const handleAddTestUser = async () => {
     const randomId = Math.floor(1000 + Math.random() * 9000);
     const testEmail = `trader${randomId}@gmail.com`;
-    const newUser: User = {
-      email: testEmail,
-      password: 'password123',
-      status: 'pending',
-      payment: {
-        amount: 15,
-        method: Math.random() > 0.5 ? 'Binance' : 'bKash',
-        date: new Date().toLocaleString(),
-      },
-      created: new Date().toLocaleString(),
+    const payment: PaymentInfo = {
+      amount: 15,
+      method: Math.random() > 0.5 ? 'Binance' : 'bKash',
+      transactionId: `TRX${randomId}`,
+      date: new Date().toLocaleString(),
     };
-    setUsers((prev) => [newUser, ...prev]);
-    showToast(`Added test payment request for ${testEmail}`);
+
+    try {
+      const regRes = await registerWithFirebase(testEmail, 'password123');
+      if (regRes.user?.id) {
+        await submitPaymentToFirebase(regRes.user.id, testEmail, payment);
+      }
+      showToast(`Added test payment request for ${testEmail}`);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
-  // Admin: Reset to default demo data
+  // Admin: Reset to default demo data (cleans local view)
   const handleResetDemoData = () => {
-    if (window.confirm('Reset all demo user records back to default?')) {
-      setUsers(INITIAL_USERS);
-      showToast('Demo users reset to default');
-    }
+    showToast('Database is synchronized in real-time with Firebase');
   };
 
   // If on admin view, render Admin Panel directly
@@ -385,22 +392,22 @@ export default function App() {
         <button
           id="footer-admin-link"
           onClick={() => setPage('adminLogin')}
-          className="text-purple-400 hover:text-purple-300 transition underline underline-offset-2"
+          className="text-purple-400 hover:text-purple-300 transition underline underline-offset-2 cursor-pointer"
         >
-          Admin Portal (00000000)
+          Admin Portal
         </button>
         <span className="hidden sm:inline">•</span>
         <button
           id="footer-free-bot-link"
           onClick={() => setPage('free')}
-          className="text-cyan-400 hover:text-cyan-300 transition"
+          className="text-cyan-400 hover:text-cyan-300 transition cursor-pointer"
         >
           Free Bot
         </button>
         <button
           id="footer-pro-bot-link"
           onClick={handlePaidAction}
-          className="text-purple-400 hover:text-purple-300 transition"
+          className="text-purple-400 hover:text-purple-300 transition cursor-pointer"
         >
           Paid Bot
         </button>

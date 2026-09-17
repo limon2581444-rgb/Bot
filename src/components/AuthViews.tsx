@@ -5,9 +5,9 @@ import { TrendingUp, Eye, EyeOff, ShieldCheck, KeyRound, Mail, Lock } from 'luci
 interface AuthViewsProps {
   page: 'login' | 'register' | 'adminLogin';
   onNavigate: (page: Page) => void;
-  onLogin: (email: string, pass: string) => boolean;
-  onRegister: (email: string, pass: string) => boolean;
-  onAdminLogin: (email: string, pass: string) => boolean;
+  onLogin: (email: string, pass: string) => Promise<boolean>;
+  onRegister: (email: string, pass: string) => Promise<boolean>;
+  onAdminLogin: (email: string, pass: string) => Promise<boolean>;
   showToast: (msg: string) => void;
 }
 
@@ -22,23 +22,26 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Handle User Login
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail || !password) {
       showToast('Please fill in all fields');
       return;
     }
-    const success = onLogin(cleanEmail, password);
-    if (!success) {
-      showToast('Invalid Gmail or password');
+    setIsSubmitting(true);
+    try {
+      await onLogin(cleanEmail, password);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   // Handle User Registration
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail.endsWith('@gmail.com')) {
@@ -49,22 +52,22 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
       showToast('Password must be at least 6 characters');
       return;
     }
-    const success = onRegister(cleanEmail, password);
-    if (!success) {
-      showToast('Account already exists with this Gmail');
-    } else {
-      showToast('Registration successful! Welcome to Trade Lens');
+    setIsSubmitting(true);
+    try {
+      await onRegister(cleanEmail, password);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   // Handle Admin Login
-  const handleAdminSubmit = (e: React.FormEvent) => {
+  const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = onAdminLogin(email.trim(), password.trim());
-    if (!success) {
-      showToast('Invalid admin credentials');
-    } else {
-      showToast('Admin access granted');
+    setIsSubmitting(true);
+    try {
+      await onAdminLogin(email.trim(), password.trim());
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
