@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Page, User } from '../types';
 import { PAID_BOT_URL } from '../data/constants';
-import { Crown, Copy, Check, ArrowLeft, ShieldCheck, Zap, Sparkles, Lock, Clock } from 'lucide-react';
+import { Crown, Copy, Check, ArrowLeft, ShieldCheck, Zap, Sparkles, Lock, Clock, Hash, AlertCircle } from 'lucide-react';
 
 interface PaidBotViewProps {
   currentUser: User | null;
@@ -15,8 +15,10 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   showToast,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [transactionCode, setTransactionCode] = useState('');
   const isApproved = currentUser?.status === 'approved';
   const isPending = currentUser?.status === 'pending';
+  const isCodeValid = transactionCode.trim().length > 0;
 
   const handleCopy = () => {
     if (!isApproved) {
@@ -154,15 +156,72 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
           </div>
         </div>
 
+        {/* Transaction Code Required Input (Only when not approved) */}
+        {!isApproved && (
+          <div className="mt-6 p-4 rounded-xl bg-[#140b2b] border border-purple-600/40 shadow-inner space-y-2">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="paid-transaction-code-input"
+                className="text-xs font-bold text-purple-200 flex items-center gap-1.5"
+              >
+                <Hash className="w-3.5 h-3.5 text-cyan-400" />
+                ট্রানজেকশন কোড (Transaction Code)
+              </label>
+              <span className="text-[11px] font-semibold text-rose-400">
+                * আবশ্যক (Required)
+              </span>
+            </div>
+
+            <div className="relative">
+              <input
+                id="paid-transaction-code-input"
+                type="text"
+                value={transactionCode}
+                onChange={(e) => setTransactionCode(e.target.value)}
+                placeholder="এখানে ট্রানজেকশন কোড দিন (যেমন: 9F3B1A28)"
+                className="w-full h-12 px-4 rounded-xl bg-[#0a0518] border border-purple-500/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 text-sm text-white placeholder:text-slate-500 font-mono outline-none transition"
+              />
+            </div>
+
+            {!isCodeValid ? (
+              <p className="text-[11px] text-amber-300/90 flex items-center gap-1">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                যতক্ষণ পর্যন্ত ট্রানজেকশন কোড না দিবেন, ততক্ষণ "Go to Payment" এ চাপ দেওয়া যাবে না।
+              </p>
+            ) : (
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <Check className="w-3.5 h-3.5 shrink-0" />
+                ট্রানজেকশন কোড দেওয়া হয়েছে। এবার "Go to Payment" বাটনে চাপুন।
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Call to action */}
-        <div className="mt-6 flex flex-col sm:flex-row gap-3 items-stretch">
+        <div className="mt-4 flex flex-col sm:flex-row gap-3 items-stretch">
           {!isApproved ? (
             <button
               id="go-to-payment-btn"
-              onClick={() => onNavigate('payment')}
-              className="flex-1 h-14 md:h-16 py-4 px-6 rounded-2xl bg-gradient-to-r from-[#763cff] to-[#c022ff] hover:brightness-110 text-white font-black text-base md:text-lg tracking-wide shadow-[0_8px_30px_rgba(180,30,255,0.45)] border-2 border-purple-400/40 flex items-center justify-center gap-2.5 transition-all transform active:scale-[0.98] cursor-pointer"
+              disabled={!isCodeValid}
+              onClick={() => {
+                if (!isCodeValid) {
+                  showToast('অনুগ্রহ করে আগে ট্রানজেকশন কোড দিন!');
+                  return;
+                }
+                onNavigate('payment');
+              }}
+              className={`flex-1 h-14 md:h-16 py-4 px-6 rounded-2xl font-black text-base md:text-lg tracking-wide border-2 flex items-center justify-center gap-2.5 transition-all transform ${
+                isCodeValid
+                  ? 'bg-gradient-to-r from-[#763cff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_8px_30px_rgba(180,30,255,0.45)] border-purple-400/40 active:scale-[0.98] cursor-pointer'
+                  : 'bg-[#150e26] border-purple-950 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
+              }`}
+              title={!isCodeValid ? 'আগে ট্রানজেকশন কোড দিন' : 'Go to Payment'}
             >
-              {isPending ? 'View Payment Status ⏳' : 'Go to Payment ($15 - $30)'}
+              {isPending
+                ? 'View Payment Status ⏳'
+                : isCodeValid
+                ? 'Go to Payment ($15 - $30)'
+                : '🔒 Enter Transaction Code to Pay'}
             </button>
           ) : (
             <button

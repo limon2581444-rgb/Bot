@@ -38,6 +38,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
     const newPayment: PaymentInfo = {
       amount: Number(amount),
       method: selectedMethod,
+      transactionId: transactionId.trim() || undefined,
       date: new Date().toLocaleString(),
     };
 

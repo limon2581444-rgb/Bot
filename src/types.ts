@@ -3,6 +3,7 @@ export type UserStatus = 'active' | 'pending' | 'approved' | 'rejected' | 'remov
 export interface PaymentInfo {
   amount: number;
   method: 'Binance' | 'bKash' | 'Nagad' | string;
+  transactionId?: string;
   date: string;
 }
 
