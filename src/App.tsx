@@ -145,8 +145,17 @@ export default function App() {
     }
 
     setCurrentUser(res.user);
-    setPage('dashboard');
-    showToast('Registration successful! Welcome to Trade Lens');
+    if (res.user.status === 'removed') {
+      setPage('denied');
+    } else {
+      setPage('dashboard');
+    }
+
+    if (res.alreadyRegistered) {
+      showToast(`Welcome back, ${res.user.email.split('@')[0]}!`);
+    } else {
+      showToast('Registration successful! Welcome to Trade Lens');
+    }
     return true;
   };
 
@@ -272,7 +281,7 @@ export default function App() {
   // Admin: Add sample test user in cloud
   const handleAddTestUser = async () => {
     const randomId = Math.floor(1000 + Math.random() * 9000);
-    const testEmail = `trader${randomId}@gmail.com`;
+    const testEmail = `trader${randomId}_${Date.now()}@gmail.com`;
     const payment: PaymentInfo = {
       amount: 15,
       method: Math.random() > 0.5 ? 'Binance' : 'bKash',
@@ -362,6 +371,7 @@ export default function App() {
             <PaidBotView
               currentUser={currentUser}
               onNavigate={setPage}
+              onSubmitPayment={handleSubmitPayment}
               showToast={showToast}
             />
           )}

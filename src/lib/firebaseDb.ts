@@ -35,43 +35,78 @@ export const emailToDocId = (email: string) => {
 export async function registerWithFirebase(
   email: string,
   pass: string
-): Promise<{ success: boolean; error?: string; user?: User }> {
+): Promise<{ success: boolean; error?: string; user?: User; alreadyRegistered?: boolean }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
     
-    // 1. Create User in Firebase Auth
-    const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-    const uid = userCredential.user.uid;
+    // 1. Attempt to create User in Firebase Auth
+    let uid: string;
+    let isExisting = false;
+
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      uid = userCredential.user.uid;
+    } catch (authErr: any) {
+      if (authErr.code === 'auth/email-already-in-use') {
+        // If email already exists, try to log in seamlessly with the provided password
+        try {
+          const loginCred = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+          uid = loginCred.user.uid;
+          isExisting = true;
+        } catch (signInErr: any) {
+          // Password doesn't match the existing account
+          return {
+            success: false,
+            error: 'Account already exists with this Gmail. Please sign in or check your password.',
+          };
+        }
+      } else if (authErr.code === 'auth/weak-password') {
+        return { success: false, error: 'Password should be at least 6 characters' };
+      } else {
+        return { success: false, error: authErr.message || 'Registration failed' };
+      }
+    }
 
     // Determine initial role
     const isAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
 
-    // 2. Save user profile document in Firestore
+    // 2. Fetch or save user profile document in Firestore
     const userDocRef = doc(db, USERS_COLLECTION, uid);
-    const newUserData: User = {
-      id: uid,
-      email: cleanEmail,
-      status: 'active',
-      role: isAdmin ? 'admin' : 'user',
-      created: new Date().toLocaleString(),
-      payment: null,
-    };
+    const docSnap = await getDoc(userDocRef);
 
-    await setDoc(userDocRef, {
-      ...newUserData,
-      createdAt: new Date().toISOString(),
-    }, { merge: true });
+    let newUserData: User;
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      newUserData = {
+        id: uid,
+        email: data.email || cleanEmail,
+        status: data.status || 'active',
+        role: data.role || (isAdmin ? 'admin' : 'user'),
+        payment: data.payment || null,
+        created: data.created || new Date().toLocaleString(),
+      };
+    } else {
+      newUserData = {
+        id: uid,
+        email: cleanEmail,
+        status: 'active',
+        role: isAdmin ? 'admin' : 'user',
+        created: new Date().toLocaleString(),
+        payment: null,
+      };
+      await setDoc(
+        userDocRef,
+        {
+          ...newUserData,
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
 
-    return { success: true, user: newUserData };
+    return { success: true, user: newUserData, alreadyRegistered: isExisting };
   } catch (err: any) {
-    console.error('Firebase registration error:', err);
-    if (err.code === 'auth/email-already-in-use') {
-      return { success: false, error: 'Account already exists with this Gmail' };
-    }
-    if (err.code === 'auth/weak-password') {
-      return { success: false, error: 'Password should be at least 6 characters' };
-    }
-    return { success: false, error: err.message || 'Registration failed' };
+    return { success: false, error: err?.message || 'Registration failed' };
   }
 }
 
@@ -102,7 +137,14 @@ export async function loginWithFirebase(
           userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
         }
       } else {
-        throw authError;
+        if (
+          authError.code === 'auth/invalid-credential' ||
+          authError.code === 'auth/user-not-found' ||
+          authError.code === 'auth/wrong-password'
+        ) {
+          return { success: false, error: 'Invalid Gmail or password' };
+        }
+        return { success: false, error: authError.message || 'Login failed' };
       }
     }
 
@@ -139,8 +181,7 @@ export async function loginWithFirebase(
 
     return { success: true, user: userData };
   } catch (err: any) {
-    console.error('Firebase login error:', err);
-    return { success: false, error: err.message || 'Invalid Gmail or password' };
+    return { success: false, error: err?.message || 'Invalid Gmail or password' };
   }
 }
 

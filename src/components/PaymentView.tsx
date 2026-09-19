@@ -269,11 +269,11 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
 
           <button
             id="back-from-payment-btn"
-            onClick={() => onNavigate('paid')}
+            onClick={() => onNavigate('dashboard')}
             className="w-full h-10 rounded-xl border border-[#2e1d4d] hover:bg-purple-950/30 text-slate-400 text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back
+            Back to Dashboard
           </button>
         </div>
       </div>
