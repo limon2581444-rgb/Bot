@@ -386,15 +386,55 @@ export async function removeUserInFirebase(userEmail: string): Promise<void> {
     }, { merge: true });
   } catch (e) {}
 
-  // Find user by email and update user document
-  const uid = await findUserIdByEmail(cleanEmail);
-  if (uid) {
-    const userDocRef = doc(db, USERS_COLLECTION, uid);
-    await updateDoc(userDocRef, {
-      status: 'removed',
-      serverUpdated: serverTimestamp(),
-    });
+  // Find all user documents matching this email (in case of duplicate docs)
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(usersRef);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if ((data.email || '').trim().toLowerCase() === cleanEmail) {
+        await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+          status: 'removed',
+          serverUpdated: serverTimestamp(),
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error removing user from Firestore:', e);
   }
+}
+
+/**
+ * Admin: Remove all approved users (revokes their privileges)
+ */
+export async function removeAllApprovedUsersInFirebase(): Promise<number> {
+  let count = 0;
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(usersRef);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if (data.status === 'approved' && data.role !== 'admin') {
+        await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+          status: 'removed',
+          serverUpdated: serverTimestamp(),
+        });
+        count++;
+
+        const cleanEmail = (data.email || '').trim().toLowerCase();
+        if (cleanEmail) {
+          const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+          await setDoc(reqDocRef, {
+            status: 'rejected',
+            serverUpdated: serverTimestamp(),
+          }, { merge: true });
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error removing all approved users from Firestore:', e);
+  }
+  return count;
 }
 
 /**
@@ -434,19 +474,45 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
   return onSnapshot(
     usersRef,
     (querySnapshot) => {
-      const usersList: User[] = [];
+      const usersMap = new Map<string, User>();
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        usersList.push({
+        const rawEmail = (data.email || '').trim();
+        const cleanEmail = rawEmail.toLowerCase();
+        if (!cleanEmail) return;
+
+        const candidateUser: User = {
           id: docSnap.id,
-          email: data.email,
-          status: data.status,
-          role: data.role,
-          payment: data.payment,
-          created: data.created,
-        });
+          email: rawEmail,
+          status: data.status || 'active',
+          role: data.role || 'user',
+          payment: data.payment || null,
+          created: data.created || '',
+        };
+
+        if (usersMap.has(cleanEmail)) {
+          const existing = usersMap.get(cleanEmail)!;
+          const statusPriority: Record<string, number> = {
+            approved: 3,
+            pending: 2,
+            active: 1,
+            removed: 0,
+          };
+          const candidateScore =
+            (statusPriority[candidateUser.status] ?? 1) +
+            (candidateUser.payment ? 5 : 0);
+          const existingScore =
+            (statusPriority[existing.status] ?? 1) +
+            (existing.payment ? 5 : 0);
+
+          if (candidateScore >= existingScore) {
+            usersMap.set(cleanEmail, candidateUser);
+          }
+        } else {
+          usersMap.set(cleanEmail, candidateUser);
+        }
       });
-      onUpdate(usersList);
+      onUpdate(Array.from(usersMap.values()));
     },
     (err) => {
       console.warn('All users subscription notice:', err.message);

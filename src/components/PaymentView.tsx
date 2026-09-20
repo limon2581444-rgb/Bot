@@ -160,7 +160,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
             </button>
           </div>
           <p className="text-[11px] text-purple-300/80 mt-1.5 flex items-center gap-1">
-            <span>💡</span> যেটাতে ট্যাপ করবেন সরাসরি টেলিগ্রাম <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong> ওপেন হবে
+            <span>💡</span> Clicking a payment method directly opens Telegram <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong>
           </p>
         </div>
 
@@ -186,7 +186,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                 >
-                  টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                  Get address on Telegram (@{TELEGRAM_USERNAME})
                 </a>
               </p>
             </div>
@@ -202,7 +202,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                 >
-                  টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                  Get number on Telegram (@{TELEGRAM_USERNAME})
                 </a>
               </p>
             </div>
@@ -218,7 +218,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                 >
-                  টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                  Get number on Telegram (@{TELEGRAM_USERNAME})
                 </a>
               </p>
             </div>
@@ -227,7 +227,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
           <div className="pt-2 border-t border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
             <div className="text-slate-400 flex items-center gap-1.5 text-[11px]">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>পেমেন্ট ও ভেরিফিকেশনের জন্য সরাসরি টেলিগ্রামে ইনবক্স করুন।</span>
+              <span>Message directly on Telegram for payment details and verification.</span>
             </div>
             <a
               href={TELEGRAM_URL}

@@ -19,6 +19,7 @@ import {
   approvePaymentInFirebase,
   rejectPaymentInFirebase,
   removeUserInFirebase,
+  removeAllApprovedUsersInFirebase,
   subscribeToCurrentUser,
   subscribeToAllUsers,
 } from './lib/firebaseDb';
@@ -265,16 +266,34 @@ export default function App() {
 
   // Admin: Remove User / Revoke Access (Updates Firebase in real-time)
   const handleRemoveUser = async (email: string) => {
-    if (!window.confirm(`Revoke and remove trading privileges for ${email}?`)) {
-      return;
-    }
-
     try {
       await removeUserInFirebase(email);
+      // Optimistically update local state immediately
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'removed' } : u
+        )
+      );
       showToast(`Revoked access for ${email}`);
     } catch (err) {
       console.error('Remove error', err);
       showToast('Error removing user');
+    }
+  };
+
+  // Admin: Remove All Approved Users
+  const handleRemoveAllApproved = async () => {
+    try {
+      const count = await removeAllApprovedUsersInFirebase();
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.status === 'approved' && u.role !== 'admin' ? { ...u, status: 'removed' } : u
+        )
+      );
+      showToast(`Removed all ${count} approved users`);
+    } catch (err) {
+      console.error('Remove all error', err);
+      showToast('Error removing all approved users');
     }
   };
 
@@ -315,6 +334,7 @@ export default function App() {
           onApproveUser={handleApproveUser}
           onRejectUser={handleRejectUser}
           onRemoveUser={handleRemoveUser}
+          onRemoveAllApproved={handleRemoveAllApproved}
           onAddTestUser={handleAddTestUser}
           onResetDemoData={handleResetDemoData}
           onNavigate={setPage}

@@ -46,7 +46,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
   const handleCopy = () => {
     if (!isApproved) {
-      showToast('🔒 এডমিন প্যানেল থেকে অ্যাপ্রুভ না করা পর্যন্ত স্ক্রিপ্ট লক থাকবে!');
+      showToast('🔒 Script is locked until approved by an administrator!');
       return;
     }
 
@@ -64,7 +64,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
   const handlePayNow = () => {
     if (!isCodeValid) {
-      showToast('অনুগ্রহ করে ট্রানজেকশন কোড / TrxID প্রদান করুন!');
+      showToast('Please provide your Transaction Code / TrxID!');
       return;
     }
     if (amount < 15) {
@@ -149,7 +149,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
             </div>
           </div>
         ) : (
-          /* PAYMENT GATEWAY (পেমেন্ট গেটওয়ে) */
+          /* PAYMENT GATEWAY */
           <div>
             {/* Gateway Header */}
             <div className="flex items-center gap-4 mb-6">
@@ -158,13 +158,13 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-2xl font-black text-white">পেমেন্ট গেটওয়ে</h2>
+                  <h2 className="text-2xl font-black text-white">Payment Gateway</h2>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-400 text-black uppercase tracking-wider">
-                    Payment Gateway
+                    VIP Access
                   </span>
                 </div>
                 <p className="text-xs md:text-sm text-purple-300/90 mt-0.5">
-                  Pro Future ট্রেডিং বট আনলক করতে পেমেন্ট সম্পন্ন করুন ($15 - $30)
+                  Complete your payment to unlock the Pro Future Trading Bot ($15 - $30)
                 </p>
               </div>
             </div>
@@ -232,7 +232,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                   <Wallet className="w-3.5 h-3.5 text-cyan-400" />
-                  পেমেন্ট মেথড নির্বাচন করুন (Select Method)
+                  Select Payment Method
                 </label>
                 <a
                   href={TELEGRAM_URL}
@@ -290,7 +290,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </div>
 
               <p className="text-[11px] text-purple-300/80 mt-1.5 flex items-center gap-1">
-                <span>💡</span> মেথডে ক্লিক করলে সরাসরি টেলিগ্রাম <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong> ওপেন হবে
+                <span>💡</span> Clicking a payment method directly opens Telegram <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong>
               </p>
             </div>
 
@@ -299,7 +299,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-cyan-300 flex items-center gap-1">
                   <Wallet className="w-3.5 h-3.5" />
-                  অ্যাকাউন্ট / ট্রান্সফার তথ্য:
+                  Account / Transfer Details:
                 </span>
                 <span className="text-[11px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 font-bold">
                   {selectedMethod}
@@ -316,7 +316,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                       rel="noopener noreferrer"
                       className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                     >
-                      টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                      Get address on Telegram (@{TELEGRAM_USERNAME})
                     </a>
                   </p>
                 </div>
@@ -332,7 +332,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                       rel="noopener noreferrer"
                       className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                     >
-                      টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                      Get number on Telegram (@{TELEGRAM_USERNAME})
                     </a>
                   </p>
                 </div>
@@ -348,7 +348,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                       rel="noopener noreferrer"
                       className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                     >
-                      টেলিগ্রাম ইনবক্স থেকে সংগ্রহ করুন (@{TELEGRAM_USERNAME})
+                      Get number on Telegram (@{TELEGRAM_USERNAME})
                     </a>
                   </p>
                 </div>
@@ -357,7 +357,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               <div className="pt-2 border-t border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                 <div className="text-slate-400 flex items-center gap-1.5 text-[11px]">
                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>পেমেন্ট অ্যাড্রেস সংগ্রহ ও প্রুফের জন্য টেলিগ্রামে চ্যাট করুন।</span>
+                  <span>Chat on Telegram to receive payment address and submit proof.</span>
                 </div>
                 <a
                   href={TELEGRAM_URL}
@@ -380,10 +380,10 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   className="text-xs font-bold text-purple-200 flex items-center gap-1.5"
                 >
                   <Hash className="w-3.5 h-3.5 text-cyan-400" />
-                  ট্রানজেকশন কোড / TrxID (Transaction Code)
+                  Transaction Code / TrxID
                 </label>
                 <span className="text-[11px] font-semibold text-rose-400">
-                  * আবশ্যক (Required)
+                  * Required
                 </span>
               </div>
 
@@ -392,19 +392,19 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 type="text"
                 value={transactionCode}
                 onChange={(e) => setTransactionCode(e.target.value)}
-                placeholder="এখানে আপনার ট্রানজেকশন আইডি বা কোড দিন (যেমন: 9F3B1A28)"
+                placeholder="Enter your transaction ID or reference code (e.g. 9F3B1A28)"
                 className="w-full h-12 px-4 rounded-xl bg-[#0a0518] border border-purple-500/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 text-sm text-white placeholder:text-slate-500 font-mono outline-none transition"
               />
 
               {!isCodeValid ? (
                 <p className="text-[11px] text-amber-300/90 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  যতক্ষণ পর্যন্ত ট্রানজেকশন কোড না দিবেন, ততক্ষণ "Pay Now" এ চাপ দেওয়া যাবে না।
+                  Please enter the transaction code above to enable the "Pay Now" button.
                 </p>
               ) : (
                 <p className="text-[11px] text-emerald-400 flex items-center gap-1">
                   <Check className="w-3.5 h-3.5 shrink-0" />
-                  ট্রানজেকশন কোড প্রস্তুত। এবার নিচের "Pay Now" বাটনে ক্লিক করুন।
+                  Transaction code entered. Click "Pay Now" below to submit.
                 </p>
               )}
             </div>
@@ -420,9 +420,9 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                     ? 'bg-gradient-to-r from-[#763cff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_8px_30px_rgba(180,30,255,0.45)] border-purple-400/40 active:scale-[0.98] cursor-pointer'
                     : 'bg-[#150e26] border-purple-950 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
                 }`}
-                title={!isCodeValid ? 'আগে ট্রানজেকশন কোড দিন' : `Pay Now ($${amount})`}
+                title={!isCodeValid ? 'Enter transaction code first' : `Pay Now ($${amount})`}
               >
-                {isCodeValid ? `Pay Now ($${amount}) — সাবমিট করুন` : '🔒 ট্রানজেকশন কোড দিলে Pay Now আনলক হবে'}
+                {isCodeValid ? `Pay Now ($${amount}) — Submit Request` : '🔒 Enter Transaction Code to Unlock Pay Now'}
               </button>
 
               <button
