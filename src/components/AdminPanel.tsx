@@ -377,18 +377,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <button
                           id={`approve-btn-${i}`}
                           onClick={() => onApproveUser(u.email)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1 shadow transition cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow transition cursor-pointer"
+                          title="Active this request"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          Approve
+                          Active
                         </button>
                         <button
                           id={`reject-btn-${i}`}
-                          onClick={() => onRejectUser(u.email)}
-                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs inline-flex items-center gap-1 shadow transition cursor-pointer"
+                          onClick={() => onRemoveUser(u.email)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs inline-flex items-center gap-1.5 shadow transition cursor-pointer"
+                          title="Remove this request"
                         >
-                          <X className="w-3.5 h-3.5" />
-                          Reject
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Remove
                         </button>
                       </td>
                     </tr>

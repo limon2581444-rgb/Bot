@@ -2,6 +2,7 @@ import { User } from '../types';
 
 export const ADMIN_EMAIL = 'limon2581444@gmail.com';
 export const ADMIN_PASSWORD = 'limonAbc123';
+export const ADMIN_NUMBER = '01712345678';
 export const TELEGRAM_USERNAME = 'dropper_sabbir';
 export const TELEGRAM_URL = 'https://t.me/dropper_sabbir';
 

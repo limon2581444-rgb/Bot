@@ -230,6 +230,20 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </div>
             </div>
 
+            {/* Information card for user */}
+            <div
+              id="pending-request-info-card"
+              className="p-4 rounded-xl bg-[#09152b] border border-cyan-500/30 text-left space-y-2"
+            >
+              <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs md:text-sm">
+                <Clock className="w-4 h-4 text-cyan-400" />
+                <span>রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠানো হয়েছে</span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                আপনার পেমেন্ট ট্রানজেকশন রিকোয়েস্ট সফলভাবে অ্যাডমিন প্যানেলে জমা হয়েছে। অ্যাডমিন তার সিকিউর প্যানেল থেকে পেমেন্ট তথ্য যাচাই করে এক্টিভ (Active) করে দিলেই সাথে সাথে Pro Future Bot আনলক হয়ে যাবে।
+              </p>
+            </div>
+
             {/* Quick Actions */}
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button

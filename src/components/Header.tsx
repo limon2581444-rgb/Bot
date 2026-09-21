@@ -71,16 +71,18 @@ export const Header: React.FC<HeaderProps> = ({
           </span>
         </div>
 
-        {/* Admin Portal Shortcut */}
-        <button
-          id="header-admin-shortcut-btn"
-          onClick={() => onNavigate('adminLogin')}
-          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1236] border border-purple-500/40 text-purple-300 hover:bg-purple-900/30 text-xs font-medium transition"
-          title="Go to Admin Panel"
-        >
-          <Shield className="w-3.5 h-3.5" />
-          <span>Admin</span>
-        </button>
+        {/* Admin Portal Shortcut - ONLY shown if logged in as Admin */}
+        {currentUser.role === 'admin' && (
+          <button
+            id="header-admin-shortcut-btn"
+            onClick={() => onNavigate('admin')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1a1236] border border-purple-500/40 text-purple-300 hover:bg-purple-900/30 text-xs font-medium transition cursor-pointer"
+            title="Go to Admin Panel"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>Admin Panel</span>
+          </button>
+        )}
 
         {/* Logout Button */}
         <button

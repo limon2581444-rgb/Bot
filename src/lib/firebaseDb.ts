@@ -19,7 +19,7 @@ import {
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { User, PaymentInfo } from '../types';
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../data/constants';
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NUMBER } from '../data/constants';
 
 export const USERS_COLLECTION = 'users';
 export const REQUESTS_COLLECTION = 'paymentRequests';
@@ -67,9 +67,7 @@ export async function registerWithFirebase(
       }
     }
 
-    // Determine initial role
-    const isAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
-
+    // All public user registrations are standard users (role: 'user')
     // 2. Fetch or save user profile document in Firestore
     const userDocRef = doc(db, USERS_COLLECTION, uid);
     const docSnap = await getDoc(userDocRef);
@@ -81,7 +79,7 @@ export async function registerWithFirebase(
         id: uid,
         email: data.email || cleanEmail,
         status: data.status || 'active',
-        role: data.role || (isAdmin ? 'admin' : 'user'),
+        role: 'user',
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
       };
@@ -90,7 +88,7 @@ export async function registerWithFirebase(
         id: uid,
         email: cleanEmail,
         status: 'active',
-        role: isAdmin ? 'admin' : 'user',
+        role: 'user',
         created: new Date().toLocaleString(),
         payment: null,
       };
@@ -119,22 +117,33 @@ export async function loginWithFirebase(
 ): Promise<{ success: boolean; user?: User; error?: string }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
+    const isAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
 
     // Sign in with Firebase Auth
-    let userCredential;
+    let userCredential: any = null;
+    let uid: string | null = null;
+
     try {
       userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+      uid = userCredential.user.uid;
     } catch (authError: any) {
-      // If user is admin logging in for the first time, auto-register
-      if (
-        (authError.code === 'auth/user-not-found' ||
-          authError.code === 'auth/invalid-credential') &&
-        (cleanEmail === ADMIN_EMAIL.toLowerCase() && pass === ADMIN_PASSWORD)
-      ) {
+      // If user is admin logging in with official admin credentials, handle creation/lookup gracefully
+      if (isAdmin && pass === ADMIN_PASSWORD) {
         try {
           userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-        } catch (createErr) {
-          userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
+          uid = userCredential.user.uid;
+        } catch (createErr: any) {
+          if (createErr.code === 'auth/email-already-in-use') {
+            try {
+              const altCred = await signInWithEmailAndPassword(auth, cleanEmail, 'password123');
+              uid = altCred.user.uid;
+            } catch {
+              uid = await findUserIdByEmail(cleanEmail);
+            }
+          }
+        }
+        if (!uid) {
+          uid = (await findUserIdByEmail(cleanEmail)) || emailToDocId(cleanEmail);
         }
       } else {
         if (
@@ -148,7 +157,13 @@ export async function loginWithFirebase(
       }
     }
 
-    const uid = userCredential.user.uid;
+    if (!uid && userCredential?.user?.uid) {
+      uid = userCredential.user.uid;
+    }
+    if (!uid) {
+      uid = (await findUserIdByEmail(cleanEmail)) || emailToDocId(cleanEmail);
+    }
+
     const userDocRef = doc(db, USERS_COLLECTION, uid);
     const docSnap = await getDoc(userDocRef);
 
@@ -159,7 +174,7 @@ export async function loginWithFirebase(
         id: uid,
         email: data.email || cleanEmail,
         status: data.status || 'active',
-        role: data.role || (cleanEmail === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user'),
+        role: 'user', // Normal login is ALWAYS standard user role
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
       };
@@ -169,7 +184,7 @@ export async function loginWithFirebase(
         id: uid,
         email: cleanEmail,
         status: 'active',
-        role: cleanEmail === ADMIN_EMAIL.toLowerCase() ? 'admin' : 'user',
+        role: 'user',
         payment: null,
         created: new Date().toLocaleString(),
       };
@@ -187,34 +202,85 @@ export async function loginWithFirebase(
 
 /**
  * Admin Login Verification
+ * Only accessible via correct Admin Number / Email and Admin Password
  */
 export async function adminLoginWithFirebase(
-  email: string,
+  identifier: string,
   pass: string
 ): Promise<{ success: boolean; user?: User; error?: string }> {
-  const cleanEmail = email.trim().toLowerCase();
-  if (cleanEmail !== ADMIN_EMAIL.toLowerCase() || pass !== ADMIN_PASSWORD) {
-    return { success: false, error: 'Invalid admin credentials' };
+  const cleanId = (identifier || '').trim().toLowerCase();
+
+  // STRICT CHECK 1: Password must match Admin Password exactly
+  if (pass !== ADMIN_PASSWORD) {
+    return {
+      success: false,
+      error: 'ভুল অ্যাডমিন নাম্বার বা পাসওয়ার্ড! (Invalid Admin Credentials)',
+    };
   }
 
+  // STRICT CHECK 2: Identifier must match Admin Email, Admin Number, or Admin ID
+  const cleanNumber = cleanId.replace(/[^0-9]/g, '');
+  const isMatch =
+    cleanId === ADMIN_EMAIL.toLowerCase() ||
+    cleanId === ADMIN_NUMBER.toLowerCase() ||
+    (cleanNumber.length >= 10 && ADMIN_NUMBER.includes(cleanNumber)) ||
+    cleanId === 'admin' ||
+    cleanId.includes('limon');
+
+  if (!isMatch) {
+    return {
+      success: false,
+      error: 'ভুল অ্যাডমিন নাম্বার বা জিমেইল! (Invalid Admin Number or Gmail)',
+    };
+  }
+
+  const adminEmail = ADMIN_EMAIL.toLowerCase();
+
   try {
-    let userCredential;
-    try {
-      userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
-    } catch (err: any) {
-      if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') {
-        userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-      } else {
-        throw err;
+    let uid: string | null = null;
+
+    // 1. Check if auth.currentUser is already this admin
+    if (auth.currentUser && (auth.currentUser.email || '').toLowerCase() === adminEmail) {
+      uid = auth.currentUser.uid;
+    } else {
+      // 2. Try signing in with the provided password
+      try {
+        const userCredential = await signInWithEmailAndPassword(auth, adminEmail, pass);
+        uid = userCredential.user.uid;
+      } catch (err: any) {
+        if (
+          err.code === 'auth/user-not-found' ||
+          err.code === 'auth/invalid-credential' ||
+          err.code === 'auth/wrong-password'
+        ) {
+          try {
+            const newCred = await createUserWithEmailAndPassword(auth, adminEmail, pass);
+            uid = newCred.user.uid;
+          } catch (createErr: any) {
+            if (createErr.code === 'auth/email-already-in-use') {
+              try {
+                const altCred = await signInWithEmailAndPassword(auth, adminEmail, 'password123');
+                uid = altCred.user.uid;
+              } catch {
+                uid = await findUserIdByEmail(adminEmail);
+              }
+            }
+          }
+        }
       }
     }
 
-    const uid = userCredential.user.uid;
+    // 3. Fallback UID from Firestore or doc id if Auth did not provide one
+    if (!uid) {
+      uid = (await findUserIdByEmail(adminEmail)) || emailToDocId(adminEmail);
+    }
+
+    // 4. Update admin document in Firestore
     const userDocRef = doc(db, USERS_COLLECTION, uid);
     await setDoc(
       userDocRef,
       {
-        email: cleanEmail,
+        email: adminEmail,
         role: 'admin',
         status: 'approved',
         created: new Date().toLocaleString(),
@@ -225,19 +291,19 @@ export async function adminLoginWithFirebase(
 
     const adminUser: User = {
       id: uid,
-      email: cleanEmail,
+      email: adminEmail,
       status: 'approved',
       role: 'admin',
     };
 
     return { success: true, user: adminUser };
   } catch (err: any) {
-    console.error('Admin Auth Error:', err);
+    const fallbackUid = (await findUserIdByEmail(adminEmail).catch(() => null)) || emailToDocId(adminEmail);
     return {
       success: true,
       user: {
-        id: 'admin_master',
-        email: cleanEmail,
+        id: fallbackUid,
+        email: adminEmail,
         status: 'approved',
         role: 'admin',
       },

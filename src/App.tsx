@@ -47,7 +47,9 @@ export default function App() {
       const saved = localStorage.getItem('tl_current_session');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed?.role === 'admin') return 'admin';
+        if (parsed?.role === 'admin' && sessionStorage.getItem('tl_admin_verified') === 'true') {
+          return 'admin';
+        }
         return 'dashboard';
       }
     } catch {}
@@ -124,7 +126,9 @@ export default function App() {
       return false;
     }
 
-    const loggedUser = res.user;
+    // Standard user login is strictly a user session
+    sessionStorage.removeItem('tl_admin_verified');
+    const loggedUser: User = { ...res.user, role: 'user' };
     setCurrentUser(loggedUser);
 
     if (loggedUser.status === 'removed') {
@@ -145,29 +149,33 @@ export default function App() {
       return false;
     }
 
-    setCurrentUser(res.user);
-    if (res.user.status === 'removed') {
+    // Standard user registration is strictly a user session
+    sessionStorage.removeItem('tl_admin_verified');
+    const newUser: User = { ...res.user, role: 'user' };
+    setCurrentUser(newUser);
+    if (newUser.status === 'removed') {
       setPage('denied');
     } else {
       setPage('dashboard');
     }
 
     if (res.alreadyRegistered) {
-      showToast(`Welcome back, ${res.user.email.split('@')[0]}!`);
+      showToast(`Welcome back, ${newUser.email.split('@')[0]}!`);
     } else {
       showToast('Registration successful! Welcome to Trade Lens');
     }
     return true;
   };
 
-  // Admin Login Handler
-  const handleAdminLogin = async (email: string, pass: string): Promise<boolean> => {
-    const res = await adminLoginWithFirebase(email, pass);
+  // Admin Login Handler - Strictly requires Admin Number/Email and Secret Admin Password
+  const handleAdminLogin = async (identifier: string, pass: string): Promise<boolean> => {
+    const res = await adminLoginWithFirebase(identifier, pass);
     if (!res.success || !res.user) {
-      showToast(res.error || 'Invalid admin credentials');
+      showToast(res.error || 'ভুল অ্যাডমিন নাম্বার বা পাসওয়ার্ড!');
       return false;
     }
 
+    sessionStorage.setItem('tl_admin_verified', 'true');
     setCurrentUser(res.user);
     setPage('admin');
     showToast('Admin access granted');
@@ -176,6 +184,7 @@ export default function App() {
 
   // User Sign Out
   const handleLogout = async () => {
+    sessionStorage.removeItem('tl_admin_verified');
     await logoutFromFirebase();
     setCurrentUser(null);
     setPage('login');
@@ -184,10 +193,11 @@ export default function App() {
 
   // Admin Logout
   const handleLogoutAdmin = async () => {
+    sessionStorage.removeItem('tl_admin_verified');
     await logoutFromFirebase();
     setCurrentUser(null);
     setPage('adminLogin');
-    showToast('Admin signed out');
+    showToast('অ্যাডমিন প্যানেল থেকে সাইন আউট করা হয়েছে');
   };
 
   // Submit Payment Request (Saves directly to Firebase Firestore for cross-device visibility)
@@ -251,6 +261,14 @@ export default function App() {
   const handleApproveUser = async (email: string) => {
     try {
       await approvePaymentInFirebase(email);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'approved' } : u
+        )
+      );
+      if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
+        setCurrentUser({ ...currentUser, status: 'approved' });
+      }
       showToast(`Approved Pro Future access for ${email}`);
     } catch (err) {
       console.error('Approve error', err);
@@ -262,6 +280,14 @@ export default function App() {
   const handleRejectUser = async (email: string) => {
     try {
       await rejectPaymentInFirebase(email);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'rejected', payment: null } : u
+        )
+      );
+      if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
+        setCurrentUser({ ...currentUser, status: 'active', payment: null });
+      }
       showToast(`Payment request for ${email} was rejected`);
     } catch (err) {
       console.error('Reject error', err);
@@ -276,9 +302,12 @@ export default function App() {
       // Optimistically update local state immediately
       setUsers((prev) =>
         prev.map((u) =>
-          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'removed' } : u
+          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'removed', payment: null } : u
         )
       );
+      if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
+        setCurrentUser({ ...currentUser, status: 'active', payment: null });
+      }
       showToast(`Revoked access for ${email}`);
     } catch (err) {
       console.error('Remove error', err);
@@ -329,8 +358,28 @@ export default function App() {
     showToast('Database is synchronized in real-time with Firebase');
   };
 
-  // If on admin view, render Admin Panel directly
+  // If on admin view, render Admin Panel directly ONLY if verified as Admin
   if (page === 'admin') {
+    const isVerifiedAdmin =
+      currentUser?.role === 'admin' &&
+      sessionStorage.getItem('tl_admin_verified') === 'true';
+
+    if (!isVerifiedAdmin) {
+      return (
+        <div className="min-h-screen bg-[#030916] font-sans antialiased text-white selection:bg-cyan-500/30">
+          <Toast message={toastMessage} />
+          <AuthViews
+            page="adminLogin"
+            onNavigate={setPage}
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onAdminLogin={handleAdminLogin}
+            showToast={showToast}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-[#030611] font-sans antialiased text-white selection:bg-purple-500/30">
         <Toast message={toastMessage} />
