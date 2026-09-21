@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Page, User } from '../types';
 import { PAID_BOT_URL } from '../data/constants';
-import { CheckCircle2, Lock, Crown, ArrowLeft, Copy, Check, Sparkles, Shield, Cpu } from 'lucide-react';
+import { CheckCircle2, Lock, Crown, ArrowLeft, Copy, Check, Sparkles, Shield, Cpu, Clock } from 'lucide-react';
 
 interface StatusViewsProps {
   type: 'pending' | 'denied' | 'pro';
@@ -35,46 +35,64 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
   if (type === 'pending') {
     return (
       <div id="pending-view" className="w-full max-w-xl mx-auto px-4 py-12">
-        <div className="p-8 text-center rounded-2xl bg-gradient-to-br from-[#071a35] to-[#040a18] border border-emerald-500/50 shadow-[0_0_40px_rgba(0,220,160,0.12)]">
-          <div className="w-18 h-18 mx-auto mb-5 rounded-full bg-emerald-500/10 border border-emerald-400 flex items-center justify-center text-emerald-400">
-            <CheckCircle2 className="w-10 h-10" />
+        <div className="p-8 text-center rounded-2xl bg-gradient-to-br from-[#071a35] to-[#040a18] border border-amber-500/50 shadow-[0_0_40px_rgba(245,158,11,0.15)]">
+          <div className="w-18 h-18 mx-auto mb-5 rounded-full bg-amber-500/10 border border-amber-400 flex items-center justify-center text-amber-400">
+            <Clock className="w-10 h-10 animate-pulse" />
           </div>
 
-          <h2 className="text-2xl font-bold text-white mb-2">Payment Successful!</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">Request Submitted to Pending List!</h2>
 
           <p className="text-sm text-slate-300 leading-relaxed max-w-md mx-auto">
-            Your payment request has been received. Your transaction details have been sent to the admin for verification and approval.
+            আপনার পেমেন্ট ট্রানজেকশন তথ্য এডমিন পেন্ডিং তালিকায় জমা হয়েছে। এডমিন ভেরিফাই করে অ্যাপ্রুভ না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে এবং বট লক থাকবে।
           </p>
 
-          <div className="inline-flex items-center gap-2 my-5 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/50 text-amber-300 text-xs font-bold tracking-wider">
-            <span>⏳ PENDING APPROVAL</span>
+          <div className="inline-flex items-center gap-2 my-5 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/60 text-amber-300 text-xs font-bold tracking-wider">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+            <span>⏳ PENDING ADMIN APPROVAL (এডমিন অ্যাপ্রুভালের অপেক্ষায়)</span>
           </div>
 
-          <div className="p-4 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-slate-300 leading-relaxed text-left space-y-1">
-            <p>
-              Submitted Amount:{' '}
-              <strong className="text-cyan-300">
-                ${currentUser.payment?.amount || 15} USD
+          <div className="p-4 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-slate-300 leading-relaxed text-left space-y-2">
+            <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+              <span className="text-slate-400">Submitted Amount:</span>
+              <strong className="text-cyan-300 font-mono text-sm">
+                ${currentUser.payment?.amount || 30} USD
               </strong>
-            </p>
-            <p>
-              Method:{' '}
+            </div>
+            <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+              <span className="text-slate-400">Payment Method:</span>
               <strong className="text-cyan-300">
                 {currentUser.payment?.method || 'Binance'}
               </strong>
-            </p>
-            <p className="text-slate-400 pt-1">
-              You will automatically gain full access to <strong className="text-[#00e4ff]">Pro Future</strong> once the administrator confirms your transfer in the Admin Portal.
+            </div>
+            {currentUser.payment?.transactionId && (
+              <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                <span className="text-slate-400">Transaction ID / TrxID:</span>
+                <strong className="text-amber-300 font-mono">
+                  {currentUser.payment.transactionId}
+                </strong>
+              </div>
+            )}
+            <p className="text-slate-400 pt-1 leading-relaxed">
+              💡 এডমিন প্যানেল থেকে অ্যাপ্রুভ করার সাথে সাথে পেজটি স্বয়ংক্রিয়ভাবে <strong className="text-[#00e4ff]">Pro Future</strong> বটের সম্পূর্ণ কোড ও ফিচার আনলক করে দেবে।
             </p>
           </div>
 
-          <button
-            id="pending-back-to-dashboard-btn"
-            onClick={() => onNavigate('dashboard')}
-            className="mt-6 w-full h-11 rounded-xl bg-gradient-to-r from-[#00cfff] to-[#1976ff] hover:brightness-110 text-white font-bold text-sm shadow-[0_4px_20px_rgba(0,180,255,0.25)] transition cursor-pointer"
-          >
-            Back to Dashboard
-          </button>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <button
+              id="pending-back-to-dashboard-btn"
+              onClick={() => onNavigate('dashboard')}
+              className="flex-1 h-11 rounded-xl bg-gradient-to-r from-[#00cfff] to-[#1976ff] hover:brightness-110 text-white font-bold text-sm shadow-[0_4px_20px_rgba(0,180,255,0.25)] transition cursor-pointer"
+            >
+              Back to Dashboard
+            </button>
+            <button
+              id="pending-view-bot-btn"
+              onClick={() => onNavigate('paid')}
+              className="h-11 px-5 rounded-xl border border-purple-500/40 hover:bg-purple-950/30 text-purple-200 text-xs font-semibold transition cursor-pointer"
+            >
+              View Status on Bot Page
+            </button>
+          </div>
         </div>
       </div>
     );

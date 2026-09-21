@@ -192,28 +192,33 @@ export default function App() {
 
   // Submit Payment Request (Saves directly to Firebase Firestore for cross-device visibility)
   const handleSubmitPayment = async (payment: PaymentInfo) => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      showToast('অনুগ্রহ করে পেমেন্ট রিকোয়েস্ট পাঠাতে আগে লগইন করুন!');
+      setPage('login');
+      return;
+    }
 
     try {
       const userId = currentUser.id || currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
       await submitPaymentToFirebase(userId, currentUser.email, payment);
 
       // Optimistically update current local state while Firestore listener confirms
-      setCurrentUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              status: 'pending',
-              payment,
-            }
-          : null
-      );
+      const updatedUser: User = {
+        ...currentUser,
+        status: 'pending',
+        payment,
+      };
+
+      setCurrentUser(updatedUser);
+      try {
+        localStorage.setItem('tl_current_session', JSON.stringify(updatedUser));
+      } catch {}
 
       setPage('pending');
-      showToast('Payment request submitted to Firebase! Awaiting admin approval.');
+      showToast('🎉 আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা হয়েছে! এডমিন অ্যাপ্রুভালের অপেক্ষায়।');
     } catch (err: any) {
       console.error('Failed to submit payment:', err);
-      showToast('Failed to send payment request to cloud database.');
+      showToast('পেমেন্ট রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
     }
   };
 

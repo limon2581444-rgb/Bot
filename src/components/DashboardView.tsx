@@ -124,9 +124,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <button
             id="get-paid-bot-btn"
             onClick={onPaidAction}
-            className="mt-6 w-full h-12 md:h-13 rounded-xl font-extrabold text-sm md:text-base bg-gradient-to-r from-[#7525ff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_6px_25px_rgba(180,30,255,0.35)] transition cursor-pointer"
+            className={`mt-6 w-full h-12 md:h-13 rounded-xl font-extrabold text-sm md:text-base transition cursor-pointer ${
+              isApproved
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 text-white shadow-[0_6px_25px_rgba(16,185,129,0.35)]'
+                : isPending
+                ? 'bg-gradient-to-r from-amber-600 to-yellow-600 hover:brightness-110 text-white shadow-[0_6px_25px_rgba(245,158,11,0.35)]'
+                : 'bg-gradient-to-r from-[#7525ff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_6px_25px_rgba(180,30,255,0.35)]'
+            }`}
           >
-            {isApproved ? 'Open Pro Future ♛' : 'Get Paid Bot'}
+            {isApproved ? 'Open Pro Future ♛' : isPending ? '⏳ Awaiting Admin Approval (Pending)' : 'Get Paid Bot'}
           </button>
         </div>
       </div>

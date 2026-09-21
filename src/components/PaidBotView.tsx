@@ -15,6 +15,9 @@ import {
   ExternalLink,
   Hash,
   AlertCircle,
+  Clock,
+  RefreshCw,
+  MessageSquare,
 } from 'lucide-react';
 
 interface PaidBotViewProps {
@@ -34,8 +37,10 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   const [amount, setAmount] = useState<number>(30);
   const [selectedMethod, setSelectedMethod] = useState<'Binance' | 'bKash' | 'Nagad'>('Binance');
   const [transactionCode, setTransactionCode] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isApproved = currentUser?.status === 'approved';
+  const isPending = currentUser?.status === 'pending';
   const isCodeValid = transactionCode.trim().length > 0;
 
   const openTelegram = (methodName: 'Binance' | 'bKash' | 'Nagad') => {
@@ -62,7 +67,13 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
       });
   };
 
-  const handlePayNow = () => {
+  const handlePayNow = async () => {
+    if (!currentUser) {
+      showToast('অনুগ্রহ করে পেমেন্ট রিকোয়েস্ট পাঠাতে আগে লগইন করুন!');
+      onNavigate('login');
+      return;
+    }
+
     if (!isCodeValid) {
       showToast('Please provide your Transaction Code / TrxID!');
       return;
@@ -76,14 +87,22 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
       return;
     }
 
-    const newPayment: PaymentInfo = {
-      amount: Number(amount),
-      method: selectedMethod,
-      transactionId: transactionCode.trim(),
-      date: new Date().toLocaleString(),
-    };
+    setIsSubmitting(true);
+    try {
+      const newPayment: PaymentInfo = {
+        amount: Number(amount),
+        method: selectedMethod,
+        transactionId: transactionCode.trim(),
+        date: new Date().toLocaleString(),
+      };
 
-    onSubmitPayment(newPayment);
+      await onSubmitPayment(newPayment);
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to submit payment request');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -142,6 +161,89 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               <button
                 onClick={() => onNavigate('dashboard')}
                 className="h-14 px-6 rounded-xl border border-[#3b2359] hover:bg-purple-950/40 text-purple-200 text-sm font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to Dashboard
+              </button>
+            </div>
+          </div>
+        ) : isPending ? (
+          /* PENDING APPROVAL VIEW */
+          <div id="paid-bot-pending-view" className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-amber-500 to-yellow-600 text-white shadow-[0_0_25px_rgba(245,158,11,0.35)]">
+                <Clock className="w-7 h-7 text-amber-100 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-black text-white">Payment Request Pending</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/40 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                    Pending Approval
+                  </span>
+                </div>
+                <p className="text-xs md:text-sm text-amber-200/90 mt-0.5">
+                  আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা রয়েছে (Awaiting Admin Review)
+                </p>
+              </div>
+            </div>
+
+            {/* Prominent Status Notice Card */}
+            <div className="p-5 rounded-xl bg-[#140e06] border-2 border-amber-500/60 shadow-[0_0_30px_rgba(245,158,11,0.2)] space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="text-xs md:text-sm text-amber-100 leading-relaxed">
+                  <p className="font-bold text-amber-300 text-sm mb-1">
+                    এডমিন অ্যাপ্রুভ না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে
+                  </p>
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    আপনার দেওয়া ট্রানজেকশন তথ্য এডমিন প্যানেলের <strong className="text-amber-300">Pending Requests</strong> তালিকায় জমা রয়েছে। এডমিন ভেরিফাই করে অনুমোদন (Approve) না করা পর্যন্ত বটটি লক থাকবে। এডমিন অনুমোদন দেওয়ার সাথে সাথেই প্রো ফিউচার বটের সম্পূর্ণ কোড ও ফিচার স্বয়ংক্রিয়ভাবে আনলক হয়ে যাবে।
+                  </p>
+                </div>
+              </div>
+
+              {/* Submitted Details Box */}
+              <div className="p-4 rounded-lg bg-[#070512] border border-amber-500/30 text-xs space-y-2">
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Payment Amount:</span>
+                  <strong className="text-white font-mono text-sm">${currentUser?.payment?.amount || amount || 30} USD</strong>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Payment Method:</span>
+                  <strong className="text-cyan-400 font-semibold">{currentUser?.payment?.method || selectedMethod}</strong>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Transaction ID / TrxID:</span>
+                  <strong className="text-amber-300 font-mono tracking-wider">{currentUser?.payment?.transactionId || transactionCode || 'Under Verification'}</strong>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Status in Database:</span>
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    ⏳ In Admin Pending Queue
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-500/20 flex items-center gap-2.5 text-[11px] text-cyan-200">
+                <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>রিয়েল-টাইম সিঙ্ক সক্রিয়: পেজ রিফ্রেশ ছাড়াই এডমিন অ্যাপ্রুভ করলে সাথে সাথে আনলক হবে।</span>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                id="pending-contact-admin-btn"
+                onClick={() => window.open(TELEGRAM_URL, '_blank', 'noopener,noreferrer')}
+                className="flex-1 h-12 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:brightness-110 text-white font-bold text-xs md:text-sm flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                Contact Admin on Telegram (@{TELEGRAM_USERNAME})
+              </button>
+              <button
+                id="pending-back-dashboard-btn"
+                onClick={() => onNavigate('dashboard')}
+                className="h-12 px-6 rounded-xl border border-purple-800/60 hover:bg-purple-950/40 text-purple-200 text-xs md:text-sm font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Back to Dashboard
@@ -413,17 +515,33 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
             <div className="space-y-3">
               <button
                 id="gateway-pay-now-btn"
-                disabled={!isCodeValid}
+                disabled={!isCodeValid || isSubmitting}
                 onClick={handlePayNow}
                 className={`w-full h-14 md:h-15 rounded-xl font-black text-base md:text-lg tracking-wide border-2 flex items-center justify-center gap-2.5 transition-all transform ${
-                  isCodeValid
+                  isCodeValid && !isSubmitting
                     ? 'bg-gradient-to-r from-[#763cff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_8px_30px_rgba(180,30,255,0.45)] border-purple-400/40 active:scale-[0.98] cursor-pointer'
                     : 'bg-[#150e26] border-purple-950 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
                 }`}
                 title={!isCodeValid ? 'Enter transaction code first' : `Pay Now ($${amount})`}
               >
-                {isCodeValid ? `Pay Now ($${amount}) — Submit Request` : '🔒 Enter Transaction Code to Unlock Pay Now'}
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-5 h-5 animate-spin text-white shrink-0" />
+                    <span>পেন্ডিং লিস্টে পাঠানো হচ্ছে... (Submitting...)</span>
+                  </>
+                ) : isCodeValid ? (
+                  <>
+                    <Clock className="w-5 h-5 text-amber-300 shrink-0" />
+                    <span>Pay Now (${amount}) — Submit to Pending List</span>
+                  </>
+                ) : (
+                  '🔒 ট্রানজেকশন আইডি দিন (Enter TrxID to Unlock Pay Now)'
+                )}
               </button>
+
+              <p className="text-center text-[11px] text-purple-300/80">
+                💡 সাবমিট করার পর রিকোয়েস্ট পেন্ডিং লিস্টে থাকবে এবং এডমিন অ্যাপ্রুভ করলে বট আনলক হবে।
+              </p>
 
               <button
                 id="gateway-back-dash-btn"

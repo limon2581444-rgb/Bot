@@ -286,6 +286,8 @@ export async function submitPaymentToFirebase(
     await setDoc(
       userDocRef,
       {
+        id: userId,
+        email: cleanEmail,
         status: 'pending',
         payment: {
           amount: payment.amount,
@@ -293,6 +295,7 @@ export async function submitPaymentToFirebase(
           transactionId: payment.transactionId || '',
           date: payment.date,
         },
+        serverUpdated: serverTimestamp(),
       },
       { merge: true }
     );
