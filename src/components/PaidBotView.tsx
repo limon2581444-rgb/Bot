@@ -31,7 +31,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   showToast,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [amount, setAmount] = useState<number>(15);
+  const [amount, setAmount] = useState<number>(30);
   const [selectedMethod, setSelectedMethod] = useState<'Binance' | 'bKash' | 'Nagad'>('Binance');
   const [transactionCode, setTransactionCode] = useState<string>('');
 
@@ -71,8 +71,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
       showToast('Minimum down payment is $15');
       return;
     }
-    if (amount > 30) {
-      showToast('Maximum payment is $30');
+    if (amount > 50) {
+      showToast('Maximum payment is $50');
       return;
     }
 
@@ -164,7 +164,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs md:text-sm text-purple-300/90 mt-0.5">
-                  Complete your payment to unlock the Pro Future Trading Bot ($15 - $30)
+                  Complete your payment to unlock the Pro Future Trading Bot ($15 - $50)
                 </p>
               </div>
             </div>
@@ -173,13 +173,13 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
             <div className="grid grid-cols-2 gap-3 mb-6">
               <div className="p-3.5 text-center rounded-xl bg-[#09152b] border border-[#1d3d62]">
                 <small className="block text-xs text-slate-400 mb-0.5">Total Payment</small>
-                <strong className="text-2xl md:text-3xl font-extrabold text-white">$30</strong>
+                <strong className="text-2xl md:text-3xl font-extrabold text-white">$50</strong>
                 <span className="block text-[10px] text-cyan-400 mt-0.5">Full Lifetime License</span>
               </div>
 
               <div className="p-3.5 text-center rounded-xl bg-[#140b2a] border border-[#8e32e6] shadow-[0_0_15px_rgba(142,50,230,0.2)]">
                 <small className="block text-xs text-purple-300 mb-0.5">Minimum Down Payment</small>
-                <strong className="text-2xl md:text-3xl font-extrabold text-purple-300">$15</strong>
+                <strong className="text-2xl md:text-3xl font-extrabold text-purple-300">$30</strong>
                 <span className="block text-[10px] text-purple-400 mt-0.5">Instant Pro Activation</span>
               </div>
             </div>
@@ -191,7 +191,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   <DollarSign className="w-3.5 h-3.5 text-cyan-400" />
                   Payment Amount ($ USD)
                 </label>
-                <span className="text-[11px] font-bold text-purple-400">Min $15 — Max $30</span>
+                <span className="text-[11px] font-bold text-purple-400">Min $15 — Max $50</span>
               </div>
 
               <div className="relative mb-2">
@@ -200,17 +200,17 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   id="payment-amount-field"
                   type="number"
                   min={15}
-                  max={30}
+                  max={50}
                   value={amount}
                   onChange={(e) => setAmount(Number(e.target.value))}
-                  placeholder="15"
+                  placeholder="30"
                   className="w-full h-11 pl-9 pr-4 rounded-xl bg-[#08152c] border border-[#21466e] focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 text-white font-black text-base outline-none transition"
                 />
               </div>
 
               {/* Quick Select Amount Pills */}
               <div className="flex items-center gap-2">
-                {[15, 20, 25, 30].map((val) => (
+                {[15, 30, 40, 50].map((val) => (
                   <button
                     key={val}
                     type="button"
@@ -380,7 +380,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   className="text-xs font-bold text-purple-200 flex items-center gap-1.5"
                 >
                   <Hash className="w-3.5 h-3.5 text-cyan-400" />
-                  Transaction Code / TrxID
+                  Payment Transaction / TrxID
                 </label>
                 <span className="text-[11px] font-semibold text-rose-400">
                   * Required
@@ -392,8 +392,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 type="text"
                 value={transactionCode}
                 onChange={(e) => setTransactionCode(e.target.value)}
-                placeholder="Enter your transaction ID or reference code (e.g. 9F3B1A28)"
-                className="w-full h-12 px-4 rounded-xl bg-[#0a0518] border border-purple-500/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 text-sm text-white placeholder:text-slate-500 font-mono outline-none transition"
+                placeholder="পেমেন্ট ট্রানজেকশন দিন (Payment Transaction ID)"
+                className="w-full h-12 px-4 rounded-xl bg-[#0a0518] border border-purple-500/50 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20 text-sm text-white placeholder:text-slate-400 font-mono outline-none transition"
               />
 
               {!isCodeValid ? (
