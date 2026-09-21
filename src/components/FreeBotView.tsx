@@ -37,8 +37,23 @@ export const FreeBotView: React.FC<FreeBotViewProps> = ({
           </div>
           <div>
             <h2 className="text-2xl font-bold text-white">Free Bot</h2>
-            <p className="text-xs md:text-sm text-slate-400 mt-0.5">
-              Your Browser Bookmarklet Script URL
+            <p className="text-xs md:text-sm text-slate-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span>Your Browser Bookmarklet Script URL</span>
+              <button
+                id="activate-bot-prompt-btn"
+                type="button"
+                onClick={() => onNavigate('paid')}
+                className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-amber-950/80 via-amber-900/50 to-amber-950/80 border border-amber-400/90 shadow-[0_0_20px_rgba(245,158,11,0.5),inset_0_0_12px_rgba(245,158,11,0.25)] hover:shadow-[0_0_30px_rgba(245,158,11,0.85)] hover:border-amber-300 transition-all duration-300 cursor-pointer active:scale-95 group"
+                title="বট একটিভ করতে এখানে ট্যাপ করুন"
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-300 shadow-[0_0_8px_#fbbf24]"></span>
+                </span>
+                <span className="text-xs font-bold text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.95)] drop-shadow-[0_0_16px_rgba(245,158,11,0.7)] tracking-wide group-hover:underline">
+                  বট একটিভ করতে হলে এখানে ট্যাপ করুন →
+                </span>
+              </button>
             </p>
           </div>
         </div>
