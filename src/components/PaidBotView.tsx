@@ -67,8 +67,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
       showToast('Please provide your Transaction Code / TrxID!');
       return;
     }
-    if (amount < 15) {
-      showToast('Minimum down payment is $15');
+    if (amount < 30) {
+      showToast('Minimum down payment is $30');
       return;
     }
     if (amount > 50) {
@@ -164,7 +164,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   </span>
                 </div>
                 <p className="text-xs md:text-sm text-purple-300/90 mt-0.5">
-                  Complete your payment to unlock the Pro Future Trading Bot ($15 - $50)
+                  Complete your payment to unlock the Pro Future Trading Bot ($30 - $50)
                 </p>
               </div>
             </div>
@@ -191,7 +191,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   <DollarSign className="w-3.5 h-3.5 text-cyan-400" />
                   Payment Amount ($ USD)
                 </label>
-                <span className="text-[11px] font-bold text-purple-400">Min $15 — Max $50</span>
+                <span className="text-[11px] font-bold text-purple-400">Min $30 — Max $50</span>
               </div>
 
               <div className="relative mb-2">
@@ -199,7 +199,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 <input
                   id="payment-amount-field"
                   type="number"
-                  min={15}
+                  min={30}
                   max={50}
                   value={amount}
                   onChange={(e) => setAmount(Number(e.target.value))}
@@ -210,7 +210,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
               {/* Quick Select Amount Pills */}
               <div className="flex items-center gap-2">
-                {[15, 30, 40, 50].map((val) => (
+                {[30, 40, 50].map((val) => (
                   <button
                     key={val}
                     type="button"
