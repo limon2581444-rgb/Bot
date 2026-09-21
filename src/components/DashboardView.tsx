@@ -51,8 +51,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
 
-            <p className="text-sm text-slate-300 mt-3 leading-relaxed min-h-[48px]">
-              Access instant trading signals and market indicators with zero upfront commitment.
+            <p
+              id="free-bot-activation-notice"
+              className="text-xs sm:text-sm font-bold text-amber-300 mt-3 p-2.5 rounded-xl bg-gradient-to-r from-amber-950/70 via-amber-900/40 to-amber-950/70 border border-amber-400/80 shadow-[0_0_25px_rgba(245,158,11,0.4),inset_0_0_14px_rgba(245,158,11,0.2)] leading-relaxed flex items-center gap-2.5 min-h-[48px]"
+            >
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-90"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-300 shadow-[0_0_10px_#fbbf24]"></span>
+              </span>
+              <span className="drop-shadow-[0_0_10px_rgba(251,191,36,0.95)] drop-shadow-[0_0_20px_rgba(245,158,11,0.6)] tracking-wide">
+                এক্টিভ করা ছাড়া বটে ট্যাপ করলে কাজ করবে না
+              </span>
             </p>
 
             <ul className="mt-4 space-y-2 text-xs text-slate-400 border-t border-slate-800/80 pt-3">
