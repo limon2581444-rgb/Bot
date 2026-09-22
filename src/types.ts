@@ -1,4 +1,4 @@
-export type UserStatus = 'active' | 'pending' | 'approved' | 'rejected' | 'removed' | 'disabled';
+export type UserStatus = 'active' | 'pending' | 'accepted' | 'approved' | 'rejected' | 'removed' | 'disabled';
 
 export interface PaymentInfo {
   amount: number;
@@ -11,10 +11,11 @@ export interface PaymentRequest {
   id?: string;
   userId?: string;
   userEmail: string;
+  userName?: string;
   amount: number;
   method: string;
   transactionId?: string;
-  status: 'pending' | 'approved' | 'rejected' | 'disabled';
+  status: 'pending' | 'accepted' | 'approved' | 'rejected' | 'disabled';
   date: string;
   createdAt?: string;
   reviewedAt?: string;
@@ -23,12 +24,15 @@ export interface PaymentRequest {
 
 export interface User {
   id?: string;
+  name?: string;
   email: string;
   status: UserStatus;
   role?: 'admin' | 'user';
   payment?: PaymentInfo | null;
   created?: string;
   createdAt?: string;
+  acceptedAt?: string;
+  acceptedDate?: string;
   activeAt?: string;
   activeDate?: string;
   disabledAt?: string;
@@ -48,4 +52,18 @@ export type Page =
   | 'denied'
   | 'adminLogin'
   | 'admin';
+
+export type AuditActionType = 'ACCEPT' | 'ACTIVATE_PRO' | 'REMOVE' | 'DISABLE' | 'RE-ACTIVATE' | 'BULK_REMOVE';
+
+export interface AdminAuditLog {
+  id?: string;
+  action: AuditActionType;
+  adminEmail: string;
+  targetUserEmail: string;
+  targetUserName?: string;
+  details?: string;
+  timestamp: string;
+  createdAt?: string;
+}
+
 

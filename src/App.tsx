@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Page, PaymentInfo, PaymentRequest } from './types';
+import { User, Page, PaymentInfo, PaymentRequest, AdminAuditLog } from './types';
 import { Header } from './components/Header';
 import { Toast } from './components/Toast';
 import { AuthViews } from './components/AuthViews';
@@ -15,6 +15,8 @@ import {
   adminLoginWithFirebase,
   logoutFromFirebase,
   submitPaymentToFirebase,
+  acceptPaymentInFirebase,
+  activateProUserInFirebase,
   approvePaymentInFirebase,
   rejectPaymentInFirebase,
   removeUserInFirebase,
@@ -22,6 +24,7 @@ import {
   subscribeToCurrentUser,
   subscribeToAllUsers,
   subscribeToPaymentRequests,
+  subscribeToAuditLogs,
 } from './lib/firebaseDb';
 import { ShieldAlert } from 'lucide-react';
 
@@ -29,6 +32,7 @@ export default function App() {
   // Shared real-time users from Firebase Firestore
   const [users, setUsers] = useState<User[]>([]);
   const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
 
   // Current authenticated user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -83,9 +87,13 @@ export default function App() {
       const unsubReqs = subscribeToPaymentRequests((reqs) => {
         setPaymentRequests(reqs);
       });
+      const unsubLogs = subscribeToAuditLogs((logs) => {
+        setAuditLogs(logs);
+      });
       return () => {
         unsubUsers();
         unsubReqs();
+        unsubLogs();
       };
     }
   }, [page, currentUser?.role]);
@@ -258,7 +266,7 @@ export default function App() {
       return;
     }
 
-    if (currentUser.status === 'pending') {
+    if (currentUser.status === 'pending' || currentUser.status === 'accepted') {
       setPage('pending');
       return;
     }
@@ -266,31 +274,62 @@ export default function App() {
     setPage('paid');
   };
 
-  // Admin: Approve User Payment (Sets status to 'active', unlocks Pro Future)
-  const handleApproveUser = async (email: string) => {
+  // Admin: Step 1 - Accept User Payment (Sets status to 'accepted', proAccess remains FALSE)
+  // CRITICAL: Does NOT activate user and does NOT unlock Pro Future yet!
+  const handleAcceptUser = async (email: string, userName?: string) => {
     try {
-      await approvePaymentInFirebase(email);
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      await acceptPaymentInFirebase(email, adminEmail, userName);
+      const nowReadable = new Date().toLocaleString();
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === email.toLowerCase()
-            ? { ...u, status: 'active', proAccess: true }
+            ? { ...u, status: 'accepted', proAccess: false, acceptedDate: nowReadable }
             : u
         )
       );
       if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-        setCurrentUser({ ...currentUser, status: 'active', proAccess: true });
+        setCurrentUser({ ...currentUser, status: 'accepted', proAccess: false, acceptedDate: nowReadable });
       }
-      showToast(`Activated Pro Future for ${email}`);
+      showToast(`Payment for ${email} accepted! Ready to activate in Accepted tab.`);
     } catch (err) {
-      console.error('Approve error', err);
-      showToast('Error approving user in Firebase');
+      console.error('Accept error', err);
+      showToast('Error accepting payment in Firebase');
     }
   };
 
-  // Admin: Reject User Payment (Sets status to 'disabled')
-  const handleRejectUser = async (email: string) => {
+  // Admin: Step 2 - Manually Activate User for PRO ACTIVE
+  // ONLY THIS action unlocks Pro Future and moves user to PRO ACTIVE!
+  const handleActivateProUser = async (email: string, userName?: string) => {
     try {
-      await rejectPaymentInFirebase(email);
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      await activateProUserInFirebase(email, adminEmail, userName);
+      const nowReadable = new Date().toLocaleString();
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.email.toLowerCase() === email.toLowerCase()
+            ? { ...u, status: 'active', proAccess: true, activeDate: nowReadable }
+            : u
+        )
+      );
+      if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
+        setCurrentUser({ ...currentUser, status: 'active', proAccess: true, activeDate: nowReadable });
+      }
+      showToast(`Activated Pro Future for ${email}! Access UNLOCKED.`);
+    } catch (err) {
+      console.error('Activate error', err);
+      showToast('Error activating user in Firebase');
+    }
+  };
+
+  // Backwards compatibility alias
+  const handleApproveUser = handleAcceptUser;
+
+  // Admin: Reject User Payment (Sets status to 'disabled')
+  const handleRejectUser = async (email: string, userName?: string) => {
+    try {
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      await rejectPaymentInFirebase(email, adminEmail, userName);
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === email.toLowerCase()
@@ -309,9 +348,10 @@ export default function App() {
   };
 
   // Admin: Remove Active User / Revoke Access (Sets status to 'disabled')
-  const handleRemoveUser = async (email: string) => {
+  const handleRemoveUser = async (email: string, userName?: string) => {
     try {
-      await removeUserInFirebase(email);
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      await removeUserInFirebase(email, adminEmail, userName);
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === email.toLowerCase()
@@ -332,7 +372,8 @@ export default function App() {
   // Admin: Remove All Approved Users
   const handleRemoveAllApproved = async () => {
     try {
-      const count = await removeAllApprovedUsersInFirebase();
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      const count = await removeAllApprovedUsersInFirebase(adminEmail);
       setUsers((prev) =>
         prev.map((u) =>
           (u.status === 'active' || u.status === 'approved') && u.role !== 'admin'
@@ -399,6 +440,9 @@ export default function App() {
         <AdminPanel
           users={users}
           paymentRequests={paymentRequests}
+          auditLogs={auditLogs}
+          onAcceptUser={handleAcceptUser}
+          onActivateProUser={handleActivateProUser}
           onApproveUser={handleApproveUser}
           onRejectUser={handleRejectUser}
           onRemoveUser={handleRemoveUser}

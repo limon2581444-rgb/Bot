@@ -26,5 +26,14 @@ service cloud.firestore {
       allow update: if true;
       allow delete: if isAdmin();
     }
+
+    // Audit Logs collection:
+    // Read and write for admin audit tracking across devices.
+    match /auditLogs/{logId} {
+      allow read: if true;
+      allow create: if true;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
   }
 }

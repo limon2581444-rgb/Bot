@@ -18,7 +18,7 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { User, PaymentInfo, PaymentRequest } from '../types';
+import { User, PaymentInfo, PaymentRequest, AdminAuditLog, AuditActionType } from '../types';
 import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
@@ -29,6 +29,7 @@ import {
 
 export const USERS_COLLECTION = 'users';
 export const REQUESTS_COLLECTION = 'paymentRequests';
+export const AUDIT_LOGS_COLLECTION = 'auditLogs';
 
 // Clean email key for Firestore document id
 export const emailToDocId = (email: string) => {
@@ -189,6 +190,7 @@ export async function loginWithFirebase(
     let userData: User;
     if (docSnap.exists()) {
       const data = docSnap.data();
+      const isActive = data.status === 'active' || data.status === 'approved';
       userData = {
         id: uid,
         email: data.email || cleanEmail,
@@ -197,11 +199,13 @@ export async function loginWithFirebase(
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
         createdAt: data.createdAt,
+        acceptedAt: data.acceptedAt,
+        acceptedDate: data.acceptedDate,
         activeAt: data.activeAt,
         activeDate: data.activeDate,
         disabledAt: data.disabledAt,
         disabledDate: data.disabledDate,
-        proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+        proAccess: isActive ? (data.proAccess ?? true) : false,
       };
     } else {
       userData = {
@@ -412,27 +416,180 @@ export async function submitPaymentToFirebase(
 }
 
 /**
- * Admin: Accept User Payment (Sets status to 'active', unlocks Pro Future, records activeDate)
+ * Record an Admin action in the audit log collection
  */
-export async function approvePaymentInFirebase(userEmail: string): Promise<void> {
+export async function recordAuditLogInFirebase(
+  action: AuditActionType,
+  adminEmail: string,
+  targetUserEmail: string,
+  details?: string,
+  targetUserName?: string
+): Promise<void> {
+  try {
+    const now = new Date();
+    const nowReadable = now.toLocaleString();
+    const nowIso = now.toISOString();
+    const logDoc = doc(collection(db, AUDIT_LOGS_COLLECTION));
+    await setDoc(logDoc, {
+      action,
+      adminEmail: adminEmail || ADMIN_EMAIL,
+      targetUserEmail: (targetUserEmail || '').trim().toLowerCase(),
+      targetUserName: targetUserName || '',
+      details: details || '',
+      timestamp: nowReadable,
+      createdAt: nowIso,
+      serverUpdated: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error('Failed to write audit log:', err);
+  }
+}
+
+/**
+ * Real-time listener for Admin Audit Logs
+ */
+export function subscribeToAuditLogs(onUpdate: (logs: AdminAuditLog[]) => void): () => void {
+  const logsRef = collection(db, AUDIT_LOGS_COLLECTION);
+  return onSnapshot(
+    logsRef,
+    (querySnapshot) => {
+      const logs: AdminAuditLog[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        logs.push({
+          id: docSnap.id,
+          action: (data.action as AuditActionType) || 'ACCEPT',
+          adminEmail: data.adminEmail || ADMIN_EMAIL,
+          targetUserEmail: data.targetUserEmail || '',
+          targetUserName: data.targetUserName || '',
+          details: data.details || '',
+          timestamp: data.timestamp || new Date().toLocaleString(),
+          createdAt: data.createdAt || '',
+        });
+      });
+
+      // Sort newest first
+      logs.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.timestamp).getTime();
+        const timeB = new Date(b.createdAt || b.timestamp).getTime();
+        return timeB - timeA;
+      });
+
+      onUpdate(logs);
+    },
+    (err) => {
+      console.warn('Audit logs subscription notice:', err.message);
+    }
+  );
+}
+
+/**
+ * Admin: Accept User Payment Request (Step 1 of 2)
+ * CRITICAL DIRECTIVE: DO NOT automatically activate the user!
+ * ACCEPT only moves the status from PENDING -> ACCEPTED / WAITING FOR ACTIVATION.
+ * User does NOT get Pro Future access yet (proAccess: false).
+ * User does NOT appear in PRO ACTIVE.
+ * Admin must subsequently click ACTIVATE PRO manually to unlock Pro Future.
+ */
+export async function acceptPaymentInFirebase(
+  userEmail: string,
+  adminEmail?: string,
+  targetUserName?: string
+): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
   const nowIso = new Date().toISOString();
   const nowReadable = new Date().toLocaleString();
+  const cleanId = emailToDocId(cleanEmail);
   
-  // 1. Update request queue in paymentRequests collection
-  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+  // 1. Update request queue in paymentRequests collection to 'accepted'
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
   try {
     await setDoc(reqDocRef, {
-      status: 'approved',
+      status: 'accepted',
       reviewedAt: nowIso,
-      reviewedBy: 'Admin',
+      reviewedBy: adminEmail || 'Admin',
       serverUpdated: serverTimestamp(),
     }, { merge: true });
   } catch (e) {
     console.error('Error updating request doc', e);
   }
 
-  // 2. Update user documents in users collection
+  // 2. Update user document to status: 'accepted', proAccess: false (LOCKED)
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(usersRef);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if ((data.email || '').trim().toLowerCase() === cleanEmail) {
+        await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+          status: 'accepted',
+          proAccess: false,
+          acceptedAt: nowIso,
+          acceptedDate: nowReadable,
+          serverUpdated: serverTimestamp(),
+        });
+      }
+    }
+
+    // Always ensure deterministic doc is also marked accepted (proAccess: false)
+    await setDoc(
+      doc(db, USERS_COLLECTION, cleanId),
+      {
+        email: cleanEmail,
+        status: 'accepted',
+        proAccess: false,
+        acceptedAt: nowIso,
+        acceptedDate: nowReadable,
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Record Audit Log entry
+    await recordAuditLogInFirebase(
+      'ACCEPT',
+      adminEmail || ADMIN_EMAIL,
+      cleanEmail,
+      'Accepted payment request - moved to Accepted / Ready to Activate (Pro Future remains locked)',
+      targetUserName
+    );
+  } catch (e) {
+    console.error('Error updating user status in Firestore:', e);
+  }
+}
+
+/**
+ * Admin: Manually Activate User for PRO ACTIVE (Step 2 of 2)
+ * ONLY when Admin clicks ACTIVATE PRO does the user:
+ * - Become status: "active"
+ * - Get Pro Future: UNLOCKED (proAccess: true)
+ * - Enter PRO ACTIVE section
+ * - Start active duration tracking
+ */
+export async function activateProUserInFirebase(
+  userEmail: string,
+  adminEmail?: string,
+  targetUserName?: string
+): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const nowReadable = new Date().toLocaleString();
+  const cleanId = emailToDocId(cleanEmail);
+  
+  // 1. Update request queue in paymentRequests collection
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
+  try {
+    await setDoc(reqDocRef, {
+      status: 'approved',
+      activatedAt: nowIso,
+      activatedBy: adminEmail || 'Admin',
+      serverUpdated: serverTimestamp(),
+    }, { merge: true });
+  } catch (e) {
+    console.error('Error updating request doc', e);
+  }
+
+  // 2. Update user documents: status: 'active', proAccess: true, activeAt: nowIso, activeDate: nowReadable
   try {
     const usersRef = collection(db, USERS_COLLECTION);
     const snap = await getDocs(usersRef);
@@ -448,26 +605,58 @@ export async function approvePaymentInFirebase(userEmail: string): Promise<void>
         });
       }
     }
+
+    await setDoc(
+      doc(db, USERS_COLLECTION, cleanId),
+      {
+        email: cleanEmail,
+        status: 'active',
+        proAccess: true,
+        activeAt: nowIso,
+        activeDate: nowReadable,
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Record Audit Log entry
+    await recordAuditLogInFirebase(
+      'ACTIVATE_PRO',
+      adminEmail || ADMIN_EMAIL,
+      cleanEmail,
+      'Manually activated user for PRO ACTIVE - Pro Future bot access UNLOCKED',
+      targetUserName
+    );
   } catch (e) {
-    console.error('Error updating user status in Firestore:', e);
+    console.error('Error activating user in Firestore:', e);
   }
 }
 
 /**
+ * Backwards-compatible alias for existing callers
+ */
+export const approvePaymentInFirebase = acceptPaymentInFirebase;
+
+/**
  * Admin: Reject / Disable User Payment Request
  */
-export async function rejectPaymentInFirebase(userEmail: string): Promise<void> {
+export async function rejectPaymentInFirebase(
+  userEmail: string,
+  adminEmail?: string,
+  targetUserName?: string
+): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
   const nowIso = new Date().toISOString();
   const nowReadable = new Date().toLocaleString();
+  const cleanId = emailToDocId(cleanEmail);
 
   // Update request queue
-  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
   try {
     await setDoc(reqDocRef, {
       status: 'disabled',
       reviewedAt: nowIso,
-      reviewedBy: 'Admin',
+      reviewedBy: adminEmail || 'Admin',
       serverUpdated: serverTimestamp(),
     }, { merge: true });
   } catch (e) {}
@@ -488,24 +677,51 @@ export async function rejectPaymentInFirebase(userEmail: string): Promise<void> 
         });
       }
     }
+
+    await setDoc(
+      doc(db, USERS_COLLECTION, cleanId),
+      {
+        email: cleanEmail,
+        status: 'disabled',
+        proAccess: false,
+        disabledAt: nowIso,
+        disabledDate: nowReadable,
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Record Audit Log entry
+    await recordAuditLogInFirebase(
+      'DISABLE',
+      adminEmail || ADMIN_EMAIL,
+      cleanEmail,
+      'Rejected payment request & disabled access',
+      targetUserName
+    );
   } catch (e) {}
 }
 
 /**
  * Admin: Remove Active user / Disable user access (Sets status to 'disabled', locks Pro Future)
  */
-export async function removeUserInFirebase(userEmail: string): Promise<void> {
+export async function removeUserInFirebase(
+  userEmail: string,
+  adminEmail?: string,
+  targetUserName?: string
+): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
   const nowIso = new Date().toISOString();
   const nowReadable = new Date().toLocaleString();
+  const cleanId = emailToDocId(cleanEmail);
 
   // Update request queue
-  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
   try {
     await setDoc(reqDocRef, {
       status: 'disabled',
       reviewedAt: nowIso,
-      reviewedBy: 'Admin',
+      reviewedBy: adminEmail || 'Admin',
       serverUpdated: serverTimestamp(),
     }, { merge: true });
   } catch (e) {}
@@ -526,6 +742,28 @@ export async function removeUserInFirebase(userEmail: string): Promise<void> {
         });
       }
     }
+
+    await setDoc(
+      doc(db, USERS_COLLECTION, cleanId),
+      {
+        email: cleanEmail,
+        status: 'disabled',
+        proAccess: false,
+        disabledAt: nowIso,
+        disabledDate: nowReadable,
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Record Audit Log entry
+    await recordAuditLogInFirebase(
+      'REMOVE',
+      adminEmail || ADMIN_EMAIL,
+      cleanEmail,
+      'Removed user from PRO ACTIVE & locked Pro Future bot license',
+      targetUserName
+    );
   } catch (e) {
     console.error('Error disabling user in Firestore:', e);
   }
@@ -534,7 +772,7 @@ export async function removeUserInFirebase(userEmail: string): Promise<void> {
 /**
  * Admin: Remove all active users
  */
-export async function removeAllApprovedUsersInFirebase(): Promise<number> {
+export async function removeAllApprovedUsersInFirebase(adminEmail?: string): Promise<number> {
   let count = 0;
   const nowIso = new Date().toISOString();
   const nowReadable = new Date().toLocaleString();
@@ -563,6 +801,15 @@ export async function removeAllApprovedUsersInFirebase(): Promise<number> {
         }
       }
     }
+
+    if (count > 0) {
+      await recordAuditLogInFirebase(
+        'BULK_REMOVE',
+        adminEmail || ADMIN_EMAIL,
+        'all_active_users',
+        `Revoked Pro Future license for all ${count} active users`
+      );
+    }
   } catch (e) {
     console.error('Error removing all approved users from Firestore:', e);
   }
@@ -588,6 +835,7 @@ export function subscribeToCurrentUser(
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
+          const isActive = data.status === 'active' || data.status === 'approved';
           onUpdate({
             id: docSnap.id,
             email: data.email,
@@ -596,11 +844,13 @@ export function subscribeToCurrentUser(
             payment: data.payment,
             created: data.created,
             createdAt: data.createdAt,
+            acceptedAt: data.acceptedAt,
+            acceptedDate: data.acceptedDate,
             activeAt: data.activeAt,
             activeDate: data.activeDate,
             disabledAt: data.disabledAt,
             disabledDate: data.disabledDate,
-            proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+            proAccess: isActive ? (data.proAccess ?? true) : false,
           });
         }
       },
@@ -621,6 +871,7 @@ export function subscribeToCurrentUser(
       (snap) => {
         if (!snap.empty) {
           const data = snap.docs[0].data();
+          const isActive = data.status === 'active' || data.status === 'approved';
           onUpdate({
             id: snap.docs[0].id,
             email: data.email || cleanEmail,
@@ -629,11 +880,13 @@ export function subscribeToCurrentUser(
             payment: data.payment,
             created: data.created,
             createdAt: data.createdAt,
+            acceptedAt: data.acceptedAt,
+            acceptedDate: data.acceptedDate,
             activeAt: data.activeAt,
             activeDate: data.activeDate,
             disabledAt: data.disabledAt,
             disabledDate: data.disabledDate,
-            proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+            proAccess: isActive ? (data.proAccess ?? true) : false,
           });
         }
       },
@@ -664,6 +917,7 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
         const cleanEmail = rawEmail.toLowerCase();
         if (!cleanEmail) return;
 
+        const isActive = data.status === 'active' || data.status === 'approved';
         const candidateUser: User = {
           id: docSnap.id,
           email: rawEmail,
@@ -672,18 +926,21 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
           payment: data.payment || null,
           created: data.created || '',
           createdAt: data.createdAt || '',
+          acceptedAt: data.acceptedAt || '',
+          acceptedDate: data.acceptedDate || '',
           activeAt: data.activeAt || '',
           activeDate: data.activeDate || '',
           disabledAt: data.disabledAt || '',
           disabledDate: data.disabledDate || '',
-          proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+          proAccess: isActive ? (data.proAccess ?? true) : false,
         };
 
         if (usersMap.has(cleanEmail)) {
           const existing = usersMap.get(cleanEmail)!;
           const statusPriority: Record<string, number> = {
-            active: 4,
-            approved: 4,
+            active: 5,
+            approved: 5,
+            accepted: 4,
             pending: 3,
             disabled: 2,
             removed: 1,

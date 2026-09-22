@@ -31,27 +31,71 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
       });
   };
 
-  // PENDING APPROVAL VIEW
+  // PENDING / ACCEPTED APPROVAL VIEW
   if (type === 'pending') {
+    const isAccepted = currentUser.status === 'accepted';
+
     return (
       <div id="pending-view" className="w-full max-w-xl mx-auto px-4 py-12">
-        <div className="p-8 text-center rounded-2xl bg-gradient-to-br from-[#071a35] to-[#040a18] border border-amber-500/50 shadow-[0_0_40px_rgba(245,158,11,0.15)]">
-          <div className="w-18 h-18 mx-auto mb-5 rounded-full bg-amber-500/10 border border-amber-400 flex items-center justify-center text-amber-400">
+        <div
+          className={`p-8 text-center rounded-2xl bg-gradient-to-br border shadow-xl ${
+            isAccepted
+              ? 'from-[#061d2d] to-[#040f1a] border-cyan-500/50 shadow-[0_0_40px_rgba(6,182,212,0.15)]'
+              : 'from-[#071a35] to-[#040a18] border-amber-500/50 shadow-[0_0_40px_rgba(245,158,11,0.15)]'
+          }`}
+        >
+          <div
+            className={`w-18 h-18 mx-auto mb-5 rounded-full border flex items-center justify-center ${
+              isAccepted
+                ? 'bg-cyan-500/10 border-cyan-400 text-cyan-400'
+                : 'bg-amber-500/10 border-amber-400 text-amber-400'
+            }`}
+          >
             <Clock className="w-10 h-10 animate-pulse" />
           </div>
 
-          <h2 className="text-2xl font-bold text-white mb-2">Request Submitted to Pending List!</h2>
+          <h2 className="text-2xl font-bold text-white mb-2">
+            {isAccepted ? 'Payment Accepted / Waiting for Activation' : 'Request Submitted to Pending List!'}
+          </h2>
 
           <p className="text-sm text-slate-300 leading-relaxed max-w-md mx-auto">
-            আপনার পেমেন্ট ট্রানজেকশন তথ্য এডমিন পেন্ডিং তালিকায় জমা হয়েছে। এডমিন ভেরিফাই করে অ্যাপ্রুভ না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে এবং বট লক থাকবে।
+            {isAccepted
+              ? 'আপনার পেমেন্ট এডমিন সফলভাবে যাচাই ও অ্যাকসেপ্ট করেছেন। তবে Pro Future ফিচার ও কোড এখনও লক রয়েছে। এডমিন ম্যানুয়ালি "ACTIVATE PRO" করার সাথে সাথেই বট সম্পূর্ণ আনলক হবে।'
+              : 'আপনার পেমেন্ট ট্রানজেকশন তথ্য এডমিন পেন্ডিং তালিকায় জমা হয়েছে। এডমিন ভেরিফাই করে অ্যাকসেপ্ট ও অ্যাক্টিভেট না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে এবং বট লক থাকবে।'}
           </p>
 
-          <div className="inline-flex items-center gap-2 my-5 px-4 py-1.5 rounded-full bg-amber-500/15 border border-amber-500/60 text-amber-300 text-xs font-bold tracking-wider">
-            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-            <span>⏳ PENDING ADMIN APPROVAL (এডমিন অ্যাপ্রুভালের অপেক্ষায়)</span>
+          <div
+            className={`inline-flex items-center gap-2 my-5 px-4 py-1.5 rounded-full border text-xs font-bold tracking-wider ${
+              isAccepted
+                ? 'bg-cyan-500/15 border-cyan-500/60 text-cyan-300'
+                : 'bg-amber-500/15 border-amber-500/60 text-amber-300'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isAccepted ? 'bg-cyan-400' : 'bg-amber-400'
+              } animate-ping`}
+            />
+            <span>
+              {isAccepted
+                ? '📋 ACCEPTED / READY TO ACTIVATE (এডমিন অ্যাক্টিভেশনের অপেক্ষায়)'
+                : '⏳ PENDING ADMIN APPROVAL (এডমিন অ্যাকসেপ্টের অপেক্ষায়)'}
+            </span>
           </div>
 
-          <div className="p-4 rounded-xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-slate-300 leading-relaxed text-left space-y-2">
+          <div className="p-4 rounded-xl bg-black/40 border border-white/10 text-xs text-slate-300 leading-relaxed text-left space-y-2">
+            <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+              <span className="text-slate-400">Current Status:</span>
+              <strong className={isAccepted ? 'text-cyan-300 font-bold' : 'text-amber-300 font-bold'}>
+                {isAccepted ? 'ACCEPTED (Ready for Activation)' : 'PENDING'}
+              </strong>
+            </div>
+            <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+              <span className="text-slate-400">Pro Future Access:</span>
+              <strong className="text-rose-400 font-bold">
+                🔒 LOCKED (Not Active Yet)
+              </strong>
+            </div>
             <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
               <span className="text-slate-400">Submitted Amount:</span>
               <strong className="text-cyan-300 font-mono text-sm">
@@ -72,8 +116,18 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
                 </strong>
               </div>
             )}
-            <p className="text-slate-400 pt-1 leading-relaxed">
-              💡 এডমিন প্যানেল থেকে অ্যাপ্রুভ করার সাথে সাথে পেজটি স্বয়ংক্রিয়ভাবে <strong className="text-[#00e4ff]">Pro Future</strong> বটের সম্পূর্ণ কোড ও ফিচার আনলক করে দেবে।
+            {currentUser.acceptedDate && (
+              <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                <span className="text-slate-400">Accepted Date:</span>
+                <strong className="text-slate-300">
+                  {currentUser.acceptedDate}
+                </strong>
+              </div>
+            )}
+            <p className="text-slate-400 pt-1 leading-relaxed text-[11px]">
+              {isAccepted
+                ? '💡 এডমিন প্যানেল থেকে "ACTIVATE PRO" বাটনে ক্লিক করার সাথে সাথে আপনার অ্যাকাউন্ট Pro Active হয়ে যাবে এবং Pro Future কোড আনলক হবে।'
+                : '💡 এডমিন প্রথমে পেমেন্ট যাচাই করে Accept করবেন এবং পরবর্তীতে ম্যানুয়ালি Pro Future সক্রিয় করবেন।'}
             </p>
           </div>
 
