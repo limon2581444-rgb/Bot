@@ -18,8 +18,14 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { User, PaymentInfo } from '../types';
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NUMBER } from '../data/constants';
+import { User, PaymentInfo, PaymentRequest } from '../types';
+import {
+  ADMIN_EMAIL,
+  ADMIN_PASSWORD,
+  ADMIN_NUMBER,
+  ADMIN_DEMO_ID,
+  ADMIN_DEMO_PASS,
+} from '../data/constants';
 
 export const USERS_COLLECTION = 'users';
 export const REQUESTS_COLLECTION = 'paymentRequests';
@@ -28,6 +34,32 @@ export const REQUESTS_COLLECTION = 'paymentRequests';
 export const emailToDocId = (email: string) => {
   return email.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
 };
+
+/**
+ * Calculates human-readable active duration
+ * Example: "Active for 2 days", "Active for 15 days", "Active for 1 month"
+ */
+export function calculateActiveDuration(activeAt?: string | null, activeDate?: string | null): string {
+  if (!activeAt && !activeDate) return '—';
+  try {
+    const start = new Date(activeAt || activeDate!).getTime();
+    if (isNaN(start)) return '—';
+    const now = Date.now();
+    const diffMs = Math.max(0, now - start);
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffMonths = Math.floor(diffDays / 30);
+
+    if (diffMins < 2) return 'Just activated';
+    if (diffMins < 60) return `Active for ${diffMins} min${diffMins > 1 ? 's' : ''}`;
+    if (diffHours < 24) return `Active for ${diffHours} hr${diffHours > 1 ? 's' : ''}`;
+    if (diffDays < 30) return `Active for ${diffDays} day${diffDays > 1 ? 's' : ''}`;
+    return `Active for ${diffMonths} month${diffMonths > 1 ? 's' : ''}`;
+  } catch {
+    return '—';
+  }
+}
 
 /**
  * Register user in Firebase Auth and Firestore.
@@ -82,6 +114,12 @@ export async function registerWithFirebase(
         role: 'user',
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
+        createdAt: data.createdAt || new Date().toISOString(),
+        activeAt: data.activeAt,
+        activeDate: data.activeDate,
+        disabledAt: data.disabledAt,
+        disabledDate: data.disabledDate,
+        proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
       };
     } else {
       newUserData = {
@@ -90,7 +128,9 @@ export async function registerWithFirebase(
         status: 'active',
         role: 'user',
         created: new Date().toLocaleString(),
+        createdAt: new Date().toISOString(),
         payment: null,
+        proAccess: false,
       };
       await setDoc(
         userDocRef,
@@ -117,7 +157,6 @@ export async function loginWithFirebase(
 ): Promise<{ success: boolean; user?: User; error?: string }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
-    const isAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
 
     // Sign in with Firebase Auth
     let userCredential: any = null;
@@ -127,34 +166,14 @@ export async function loginWithFirebase(
       userCredential = await signInWithEmailAndPassword(auth, cleanEmail, pass);
       uid = userCredential.user.uid;
     } catch (authError: any) {
-      // If user is admin logging in with official admin credentials, handle creation/lookup gracefully
-      if (isAdmin && pass === ADMIN_PASSWORD) {
-        try {
-          userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
-          uid = userCredential.user.uid;
-        } catch (createErr: any) {
-          if (createErr.code === 'auth/email-already-in-use') {
-            try {
-              const altCred = await signInWithEmailAndPassword(auth, cleanEmail, 'password123');
-              uid = altCred.user.uid;
-            } catch {
-              uid = await findUserIdByEmail(cleanEmail);
-            }
-          }
-        }
-        if (!uid) {
-          uid = (await findUserIdByEmail(cleanEmail)) || emailToDocId(cleanEmail);
-        }
-      } else {
-        if (
-          authError.code === 'auth/invalid-credential' ||
-          authError.code === 'auth/user-not-found' ||
-          authError.code === 'auth/wrong-password'
-        ) {
-          return { success: false, error: 'Invalid Gmail or password' };
-        }
-        return { success: false, error: authError.message || 'Login failed' };
+      if (
+        authError.code === 'auth/invalid-credential' ||
+        authError.code === 'auth/user-not-found' ||
+        authError.code === 'auth/wrong-password'
+      ) {
+        return { success: false, error: 'Invalid Gmail or password' };
       }
+      return { success: false, error: authError.message || 'Login failed' };
     }
 
     if (!uid && userCredential?.user?.uid) {
@@ -174,63 +193,60 @@ export async function loginWithFirebase(
         id: uid,
         email: data.email || cleanEmail,
         status: data.status || 'active',
-        role: 'user', // Normal login is ALWAYS standard user role
+        role: 'user',
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
+        createdAt: data.createdAt,
+        activeAt: data.activeAt,
+        activeDate: data.activeDate,
+        disabledAt: data.disabledAt,
+        disabledDate: data.disabledDate,
+        proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
       };
     } else {
-      // Create user document if missing
       userData = {
         id: uid,
         email: cleanEmail,
         status: 'active',
         role: 'user',
-        payment: null,
         created: new Date().toLocaleString(),
-      };
-      await setDoc(userDocRef, {
-        ...userData,
         createdAt: new Date().toISOString(),
-      });
+        payment: null,
+        proAccess: false,
+      };
+      await setDoc(userDocRef, userData, { merge: true });
     }
 
     return { success: true, user: userData };
   } catch (err: any) {
-    return { success: false, error: err?.message || 'Invalid Gmail or password' };
+    return { success: false, error: err?.message || 'Login failed' };
   }
 }
 
 /**
  * Admin Login Verification
- * Only accessible via correct Admin Number / Email and Admin Password
+ * Only accessible via authorized Admin credentials (demo 00000000 / 00000000 or official admin credentials)
  */
 export async function adminLoginWithFirebase(
   identifier: string,
   pass: string
 ): Promise<{ success: boolean; user?: User; error?: string }> {
   const cleanId = (identifier || '').trim().toLowerCase();
+  const cleanNumber = cleanId.replace(/[^0-9]/g, '');
 
-  // STRICT CHECK 1: Password must match Admin Password exactly
-  if (pass !== ADMIN_PASSWORD) {
+  const isDemoAdmin = cleanId === ADMIN_DEMO_ID && pass === ADMIN_DEMO_PASS;
+  const isOfficialAdmin =
+    (cleanId === ADMIN_EMAIL.toLowerCase() ||
+      cleanId === ADMIN_NUMBER.toLowerCase() ||
+      (cleanNumber.length >= 10 && ADMIN_NUMBER.includes(cleanNumber)) ||
+      cleanId === 'admin' ||
+      cleanId.includes('limon')) &&
+    (pass === ADMIN_PASSWORD || pass === ADMIN_DEMO_PASS);
+
+  if (!isDemoAdmin && !isOfficialAdmin) {
     return {
       success: false,
       error: 'ভুল অ্যাডমিন নাম্বার বা পাসওয়ার্ড! (Invalid Admin Credentials)',
-    };
-  }
-
-  // STRICT CHECK 2: Identifier must match Admin Email, Admin Number, or Admin ID
-  const cleanNumber = cleanId.replace(/[^0-9]/g, '');
-  const isMatch =
-    cleanId === ADMIN_EMAIL.toLowerCase() ||
-    cleanId === ADMIN_NUMBER.toLowerCase() ||
-    (cleanNumber.length >= 10 && ADMIN_NUMBER.includes(cleanNumber)) ||
-    cleanId === 'admin' ||
-    cleanId.includes('limon');
-
-  if (!isMatch) {
-    return {
-      success: false,
-      error: 'ভুল অ্যাডমিন নাম্বার বা জিমেইল! (Invalid Admin Number or Gmail)',
     };
   }
 
@@ -239,50 +255,36 @@ export async function adminLoginWithFirebase(
   try {
     let uid: string | null = null;
 
-    // 1. Check if auth.currentUser is already this admin
+    // Check if auth.currentUser is already this admin
     if (auth.currentUser && (auth.currentUser.email || '').toLowerCase() === adminEmail) {
       uid = auth.currentUser.uid;
     } else {
-      // 2. Try signing in with the provided password
       try {
-        const userCredential = await signInWithEmailAndPassword(auth, adminEmail, pass);
+        const userCredential = await signInWithEmailAndPassword(auth, adminEmail, ADMIN_PASSWORD);
         uid = userCredential.user.uid;
       } catch (err: any) {
-        if (
-          err.code === 'auth/user-not-found' ||
-          err.code === 'auth/invalid-credential' ||
-          err.code === 'auth/wrong-password'
-        ) {
-          try {
-            const newCred = await createUserWithEmailAndPassword(auth, adminEmail, pass);
-            uid = newCred.user.uid;
-          } catch (createErr: any) {
-            if (createErr.code === 'auth/email-already-in-use') {
-              try {
-                const altCred = await signInWithEmailAndPassword(auth, adminEmail, 'password123');
-                uid = altCred.user.uid;
-              } catch {
-                uid = await findUserIdByEmail(adminEmail);
-              }
-            }
-          }
+        try {
+          const newCred = await createUserWithEmailAndPassword(auth, adminEmail, ADMIN_PASSWORD);
+          uid = newCred.user.uid;
+        } catch {
+          uid = (await findUserIdByEmail(adminEmail)) || emailToDocId(adminEmail);
         }
       }
     }
 
-    // 3. Fallback UID from Firestore or doc id if Auth did not provide one
     if (!uid) {
       uid = (await findUserIdByEmail(adminEmail)) || emailToDocId(adminEmail);
     }
 
-    // 4. Update admin document in Firestore
+    // Update admin document in Firestore
     const userDocRef = doc(db, USERS_COLLECTION, uid);
     await setDoc(
       userDocRef,
       {
         email: adminEmail,
         role: 'admin',
-        status: 'approved',
+        status: 'active',
+        proAccess: true,
         created: new Date().toLocaleString(),
         createdAt: new Date().toISOString(),
       },
@@ -292,8 +294,9 @@ export async function adminLoginWithFirebase(
     const adminUser: User = {
       id: uid,
       email: adminEmail,
-      status: 'approved',
+      status: 'active',
       role: 'admin',
+      proAccess: true,
     };
 
     return { success: true, user: adminUser };
@@ -304,8 +307,9 @@ export async function adminLoginWithFirebase(
       user: {
         id: fallbackUid,
         email: adminEmail,
-        status: 'approved',
+        status: 'active',
         role: 'admin',
+        proAccess: true,
       },
     };
   }
@@ -345,6 +349,7 @@ export async function submitPaymentToFirebase(
   payment: PaymentInfo
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
 
   // 1. Update User document with pending status and payment info
   if (userId) {
@@ -355,6 +360,7 @@ export async function submitPaymentToFirebase(
         id: userId,
         email: cleanEmail,
         status: 'pending',
+        proAccess: false,
         payment: {
           amount: payment.amount,
           method: payment.method,
@@ -366,6 +372,25 @@ export async function submitPaymentToFirebase(
       { merge: true }
     );
   }
+
+  // Also query other docs by email to ensure complete consistency
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(query(usersRef, where('email', '==', cleanEmail)));
+    for (const d of snap.docs) {
+      await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+        status: 'pending',
+        proAccess: false,
+        payment: {
+          amount: payment.amount,
+          method: payment.method,
+          transactionId: payment.transactionId || '',
+          date: payment.date,
+        },
+        serverUpdated: serverTimestamp(),
+      });
+    }
+  } catch (e) {}
 
   // 2. Also save to paymentRequests collection with deterministic docId
   const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
@@ -379,7 +404,7 @@ export async function submitPaymentToFirebase(
       transactionId: payment.transactionId || '',
       status: 'pending',
       date: payment.date,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
       serverUpdated: serverTimestamp(),
     },
     { merge: true }
@@ -387,75 +412,27 @@ export async function submitPaymentToFirebase(
 }
 
 /**
- * Admin: Approve User Payment (Sets status to 'approved' in Firestore)
+ * Admin: Accept User Payment (Sets status to 'active', unlocks Pro Future, records activeDate)
  */
 export async function approvePaymentInFirebase(userEmail: string): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const nowReadable = new Date().toLocaleString();
   
-  // Update request queue
+  // 1. Update request queue in paymentRequests collection
   const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
   try {
     await setDoc(reqDocRef, {
       status: 'approved',
+      reviewedAt: nowIso,
+      reviewedBy: 'Admin',
       serverUpdated: serverTimestamp(),
     }, { merge: true });
   } catch (e) {
     console.error('Error updating request doc', e);
   }
 
-  // Find user by email and update user document
-  const uid = await findUserIdByEmail(cleanEmail);
-  if (uid) {
-    const userDocRef = doc(db, USERS_COLLECTION, uid);
-    await updateDoc(userDocRef, {
-      status: 'approved',
-      serverUpdated: serverTimestamp(),
-    });
-  }
-}
-
-/**
- * Admin: Reject User Payment (Sets status to 'rejected' in Firestore)
- */
-export async function rejectPaymentInFirebase(userEmail: string): Promise<void> {
-  const cleanEmail = userEmail.trim().toLowerCase();
-
-  // Update request queue
-  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
-  try {
-    await setDoc(reqDocRef, {
-      status: 'rejected',
-      serverUpdated: serverTimestamp(),
-    }, { merge: true });
-  } catch (e) {}
-
-  // Find user by email and update user document
-  const uid = await findUserIdByEmail(cleanEmail);
-  if (uid) {
-    const userDocRef = doc(db, USERS_COLLECTION, uid);
-    await updateDoc(userDocRef, {
-      status: 'rejected',
-      serverUpdated: serverTimestamp(),
-    });
-  }
-}
-
-/**
- * Admin: Remove user / revoke privileges (Sets status to 'removed')
- */
-export async function removeUserInFirebase(userEmail: string): Promise<void> {
-  const cleanEmail = userEmail.trim().toLowerCase();
-
-  // Update request queue
-  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
-  try {
-    await setDoc(reqDocRef, {
-      status: 'rejected',
-      serverUpdated: serverTimestamp(),
-    }, { merge: true });
-  } catch (e) {}
-
-  // Find all user documents matching this email (in case of duplicate docs)
+  // 2. Update user documents in users collection
   try {
     const usersRef = collection(db, USERS_COLLECTION);
     const snap = await getDocs(usersRef);
@@ -463,29 +440,115 @@ export async function removeUserInFirebase(userEmail: string): Promise<void> {
       const data = d.data();
       if ((data.email || '').trim().toLowerCase() === cleanEmail) {
         await updateDoc(doc(db, USERS_COLLECTION, d.id), {
-          status: 'removed',
+          status: 'active',
+          proAccess: true,
+          activeAt: nowIso,
+          activeDate: nowReadable,
           serverUpdated: serverTimestamp(),
         });
       }
     }
   } catch (e) {
-    console.error('Error removing user from Firestore:', e);
+    console.error('Error updating user status in Firestore:', e);
   }
 }
 
 /**
- * Admin: Remove all approved users (revokes their privileges)
+ * Admin: Reject / Disable User Payment Request
  */
-export async function removeAllApprovedUsersInFirebase(): Promise<number> {
-  let count = 0;
+export async function rejectPaymentInFirebase(userEmail: string): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const nowReadable = new Date().toLocaleString();
+
+  // Update request queue
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+  try {
+    await setDoc(reqDocRef, {
+      status: 'disabled',
+      reviewedAt: nowIso,
+      reviewedBy: 'Admin',
+      serverUpdated: serverTimestamp(),
+    }, { merge: true });
+  } catch (e) {}
+
+  // Update user document
   try {
     const usersRef = collection(db, USERS_COLLECTION);
     const snap = await getDocs(usersRef);
     for (const d of snap.docs) {
       const data = d.data();
-      if (data.status === 'approved' && data.role !== 'admin') {
+      if ((data.email || '').trim().toLowerCase() === cleanEmail) {
         await updateDoc(doc(db, USERS_COLLECTION, d.id), {
-          status: 'removed',
+          status: 'disabled',
+          proAccess: false,
+          disabledAt: nowIso,
+          disabledDate: nowReadable,
+          serverUpdated: serverTimestamp(),
+        });
+      }
+    }
+  } catch (e) {}
+}
+
+/**
+ * Admin: Remove Active user / Disable user access (Sets status to 'disabled', locks Pro Future)
+ */
+export async function removeUserInFirebase(userEmail: string): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const nowReadable = new Date().toLocaleString();
+
+  // Update request queue
+  const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
+  try {
+    await setDoc(reqDocRef, {
+      status: 'disabled',
+      reviewedAt: nowIso,
+      reviewedBy: 'Admin',
+      serverUpdated: serverTimestamp(),
+    }, { merge: true });
+  } catch (e) {}
+
+  // Update all user documents matching this email
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(usersRef);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if ((data.email || '').trim().toLowerCase() === cleanEmail) {
+        await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+          status: 'disabled',
+          proAccess: false,
+          disabledAt: nowIso,
+          disabledDate: nowReadable,
+          serverUpdated: serverTimestamp(),
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Error disabling user in Firestore:', e);
+  }
+}
+
+/**
+ * Admin: Remove all active users
+ */
+export async function removeAllApprovedUsersInFirebase(): Promise<number> {
+  let count = 0;
+  const nowIso = new Date().toISOString();
+  const nowReadable = new Date().toLocaleString();
+  try {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const snap = await getDocs(usersRef);
+    for (const d of snap.docs) {
+      const data = d.data();
+      if ((data.status === 'active' || data.status === 'approved') && data.role !== 'admin') {
+        await updateDoc(doc(db, USERS_COLLECTION, d.id), {
+          status: 'disabled',
+          proAccess: false,
+          disabledAt: nowIso,
+          disabledDate: nowReadable,
           serverUpdated: serverTimestamp(),
         });
         count++;
@@ -494,7 +557,7 @@ export async function removeAllApprovedUsersInFirebase(): Promise<number> {
         if (cleanEmail) {
           const reqDocRef = doc(db, REQUESTS_COLLECTION, emailToDocId(cleanEmail));
           await setDoc(reqDocRef, {
-            status: 'rejected',
+            status: 'disabled',
             serverUpdated: serverTimestamp(),
           }, { merge: true });
         }
@@ -508,31 +571,82 @@ export async function removeAllApprovedUsersInFirebase(): Promise<number> {
 
 /**
  * Real-time listener for current user document.
+ * Listens by userId and/or email query for cross-device updates.
  */
 export function subscribeToCurrentUser(
   userId: string,
-  onUpdate: (user: User) => void
+  userEmail: string,
+  onUpdate: (user: Partial<User>) => void
 ): () => void {
-  const userDocRef = doc(db, USERS_COLLECTION, userId);
-  return onSnapshot(
-    userDocRef,
-    (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        onUpdate({
-          id: docSnap.id,
-          email: data.email,
-          status: data.status,
-          role: data.role,
-          payment: data.payment,
-          created: data.created,
-        });
+  const unsubs: Array<() => void> = [];
+
+  // Listen by docId
+  if (userId) {
+    const userDocRef = doc(db, USERS_COLLECTION, userId);
+    const unsubDoc = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          onUpdate({
+            id: docSnap.id,
+            email: data.email,
+            status: data.status,
+            role: data.role,
+            payment: data.payment,
+            created: data.created,
+            createdAt: data.createdAt,
+            activeAt: data.activeAt,
+            activeDate: data.activeDate,
+            disabledAt: data.disabledAt,
+            disabledDate: data.disabledDate,
+            proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+          });
+        }
+      },
+      (err) => {
+        console.warn('User doc subscription info:', err.message);
       }
-    },
-    (err) => {
-      console.warn('Current user subscription info:', err.message);
-    }
-  );
+    );
+    unsubs.push(unsubDoc);
+  }
+
+  // Also listen by email in case another document id was updated by admin
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  if (cleanEmail) {
+    const usersRef = collection(db, USERS_COLLECTION);
+    const q = query(usersRef, where('email', '==', cleanEmail));
+    const unsubQuery = onSnapshot(
+      q,
+      (snap) => {
+        if (!snap.empty) {
+          const data = snap.docs[0].data();
+          onUpdate({
+            id: snap.docs[0].id,
+            email: data.email || cleanEmail,
+            status: data.status,
+            role: data.role,
+            payment: data.payment,
+            created: data.created,
+            createdAt: data.createdAt,
+            activeAt: data.activeAt,
+            activeDate: data.activeDate,
+            disabledAt: data.disabledAt,
+            disabledDate: data.disabledDate,
+            proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+          });
+        }
+      },
+      (err) => {
+        console.warn('User query subscription info:', err.message);
+      }
+    );
+    unsubs.push(unsubQuery);
+  }
+
+  return () => {
+    unsubs.forEach((fn) => fn());
+  };
 }
 
 /**
@@ -557,15 +671,22 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
           role: data.role || 'user',
           payment: data.payment || null,
           created: data.created || '',
+          createdAt: data.createdAt || '',
+          activeAt: data.activeAt || '',
+          activeDate: data.activeDate || '',
+          disabledAt: data.disabledAt || '',
+          disabledDate: data.disabledDate || '',
+          proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
         };
 
         if (usersMap.has(cleanEmail)) {
           const existing = usersMap.get(cleanEmail)!;
           const statusPriority: Record<string, number> = {
-            approved: 3,
-            pending: 2,
-            active: 1,
-            removed: 0,
+            active: 4,
+            approved: 4,
+            pending: 3,
+            disabled: 2,
+            removed: 1,
           };
           const candidateScore =
             (statusPriority[candidateUser.status] ?? 1) +
@@ -585,6 +706,41 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
     },
     (err) => {
       console.warn('All users subscription notice:', err.message);
+    }
+  );
+}
+
+/**
+ * Real-time listener for all payment requests (for Admin Panel).
+ */
+export function subscribeToPaymentRequests(
+  onUpdate: (requests: PaymentRequest[]) => void
+): () => void {
+  const reqsRef = collection(db, REQUESTS_COLLECTION);
+  return onSnapshot(
+    reqsRef,
+    (querySnapshot) => {
+      const list: PaymentRequest[] = [];
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        list.push({
+          id: docSnap.id,
+          userId: data.userId,
+          userEmail: data.userEmail || '',
+          amount: data.amount || 0,
+          method: data.method || '',
+          transactionId: data.transactionId || '',
+          status: data.status || 'pending',
+          date: data.date || '',
+          createdAt: data.createdAt || '',
+          reviewedAt: data.reviewedAt,
+          reviewedBy: data.reviewedBy,
+        });
+      });
+      onUpdate(list);
+    },
+    (err) => {
+      console.warn('Payment requests subscription notice:', err.message);
     }
   );
 }

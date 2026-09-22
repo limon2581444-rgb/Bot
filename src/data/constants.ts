@@ -3,6 +3,8 @@ import { User } from '../types';
 export const ADMIN_EMAIL = 'limon2581444@gmail.com';
 export const ADMIN_PASSWORD = 'limonAbc123';
 export const ADMIN_NUMBER = '01712345678';
+export const ADMIN_DEMO_ID = '00000000';
+export const ADMIN_DEMO_PASS = '00000000';
 export const TELEGRAM_USERNAME = 'dropper_sabbir';
 export const TELEGRAM_URL = 'https://t.me/dropper_sabbir';
 
@@ -14,31 +16,36 @@ export const PAID_BOT_URL =
 export const INITIAL_USERS: User[] = [
   {
     email: 'alex.crypto@gmail.com',
-    password: 'password123',
     status: 'pending',
     payment: {
-      amount: 15,
+      amount: 30,
       method: 'Binance',
-      date: '2026-09-16 18:42:10',
+      transactionId: 'TX789218490B',
+      date: '2026-09-20 14:22:10',
     },
-    created: '2026-09-16 18:30:00',
+    created: '2026-09-20 14:10:00',
+    createdAt: '2026-09-20T14:10:00Z',
   },
   {
     email: 'vip.trader@gmail.com',
-    password: 'password123',
-    status: 'approved',
+    status: 'active',
+    proAccess: true,
     payment: {
-      amount: 30,
+      amount: 35,
       method: 'bKash',
-      date: '2026-09-15 11:20:00',
+      transactionId: 'BK994821034A',
+      date: '2026-09-18 11:20:00',
     },
-    created: '2026-09-15 11:00:00',
+    created: '2026-09-18 11:00:00',
+    createdAt: '2026-09-18T11:00:00Z',
+    activeDate: '2026-09-18 11:25:00',
+    activeAt: '2026-09-18T11:25:00Z',
   },
   {
     email: 'starter.user@gmail.com',
-    password: 'password123',
     status: 'active',
     payment: null,
-    created: '2026-09-17 08:15:00',
+    created: '2026-09-21 08:15:00',
+    createdAt: '2026-09-21T08:15:00Z',
   },
 ];

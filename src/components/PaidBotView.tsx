@@ -39,7 +39,12 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   const [transactionCode, setTransactionCode] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isApproved = currentUser?.status === 'approved';
+  const isApproved =
+    (currentUser?.status === 'approved' ||
+      currentUser?.status === 'active' ||
+      !!currentUser?.proAccess) &&
+    currentUser?.status !== 'disabled' &&
+    currentUser?.status !== 'removed';
   const isPending = currentUser?.status === 'pending';
   const isCodeValid = transactionCode.trim().length > 0;
 

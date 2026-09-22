@@ -245,8 +245,9 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
 
         {page === 'adminLogin' && (
           <form id="form-admin-login" onSubmit={handleAdminSubmit} className="space-y-4">
-            <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200 leading-relaxed">
-              🔒 অ্যাডমিন প্যানেল শুধুমাত্র নির্দিষ্ট <strong>অ্যাডমিন নাম্বার / জিমেইল</strong> এবং <strong>অ্যাডমিন পাসওয়ার্ড</strong> দিয়ে প্রবেশ করা যাবে।
+            <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200 leading-relaxed space-y-1">
+              <p>🔒 অ্যাডমিন প্যানেল শুধুমাত্র অনুমোদিত <strong>অ্যাডমিন নাম্বার / জিমেইল</strong> এবং <strong>অ্যাডমিন পাসওয়ার্ড</strong> দিয়ে প্রবেশ করা যাবে।</p>
+              <p className="text-[11px] text-purple-300/80 font-mono">Demo Admin: <strong>00000000</strong> | Password: <strong>00000000</strong></p>
             </div>
 
             <div>
@@ -260,7 +261,7 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Admin Number or Gmail"
+                  placeholder="00000000 or Admin Gmail"
                   autoComplete="off"
                   required
                   className="w-full h-11 px-3.5 rounded-xl bg-[#140f2e] border border-purple-800/60 focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 text-sm text-white placeholder:text-slate-500 outline-none transition"
@@ -279,7 +280,7 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter secret admin password"
+                  placeholder="00000000 or secret password"
                   autoComplete="off"
                   required
                   className="w-full h-11 px-3.5 pr-11 rounded-xl bg-[#140f2e] border border-purple-800/60 focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 text-sm text-white placeholder:text-slate-500 outline-none transition"

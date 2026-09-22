@@ -1,4 +1,4 @@
-export type UserStatus = 'active' | 'pending' | 'approved' | 'rejected' | 'removed';
+export type UserStatus = 'active' | 'pending' | 'approved' | 'rejected' | 'removed' | 'disabled';
 
 export interface PaymentInfo {
   amount: number;
@@ -14,19 +14,26 @@ export interface PaymentRequest {
   amount: number;
   method: string;
   transactionId?: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'disabled';
   date: string;
   createdAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
 }
 
 export interface User {
   id?: string;
   email: string;
-  password?: string;
   status: UserStatus;
   role?: 'admin' | 'user';
   payment?: PaymentInfo | null;
   created?: string;
+  createdAt?: string;
+  activeAt?: string;
+  activeDate?: string;
+  disabledAt?: string;
+  disabledDate?: string;
+  proAccess?: boolean;
 }
 
 export type Page =

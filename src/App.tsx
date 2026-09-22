@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Page, PaymentInfo } from './types';
-import { ADMIN_EMAIL, ADMIN_PASSWORD } from './data/constants';
+import { User, Page, PaymentInfo, PaymentRequest } from './types';
 import { Header } from './components/Header';
 import { Toast } from './components/Toast';
 import { AuthViews } from './components/AuthViews';
@@ -22,11 +21,14 @@ import {
   removeAllApprovedUsersInFirebase,
   subscribeToCurrentUser,
   subscribeToAllUsers,
+  subscribeToPaymentRequests,
 } from './lib/firebaseDb';
+import { ShieldAlert } from 'lucide-react';
 
 export default function App() {
   // Shared real-time users from Firebase Firestore
   const [users, setUsers] = useState<User[]>([]);
+  const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
 
   // Current authenticated user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -72,44 +74,52 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Real-time listener for all users (ensures Phone A payment request instantly shows on Phone B Admin Panel)
+  // Real-time listener for all users & requests when on Admin Panel
   useEffect(() => {
-    // Only subscribe to all users if current user is admin or on admin page
     if (page === 'admin' || currentUser?.role === 'admin') {
-      const unsubscribe = subscribeToAllUsers((firestoreUsers) => {
+      const unsubUsers = subscribeToAllUsers((firestoreUsers) => {
         setUsers(firestoreUsers);
       });
-      return () => unsubscribe();
+      const unsubReqs = subscribeToPaymentRequests((reqs) => {
+        setPaymentRequests(reqs);
+      });
+      return () => {
+        unsubUsers();
+        unsubReqs();
+      };
     }
   }, [page, currentUser?.role]);
 
-  // Real-time listener for current logged-in user
-  // When Admin on Phone B approves, Phone A user's status updates in real-time and unlocks Pro Future
+  // Real-time listener for current logged-in user (instant cross-device activation)
   useEffect(() => {
     if (!currentUser?.id && !currentUser?.email) return;
 
-    // Listen by ID if available
-    if (currentUser.id && currentUser.id !== 'admin_master') {
-      const unsubscribe = subscribeToCurrentUser(currentUser.id, (updated) => {
+    const unsubscribe = subscribeToCurrentUser(
+      currentUser.id || '',
+      currentUser.email || '',
+      (updated) => {
         setCurrentUser((prev) => {
-          if (!prev) return updated;
+          if (!prev) return updated as User;
           return {
             ...prev,
             ...updated,
           };
         });
 
-        // If status changed to approved and user was waiting on pending screen, notify and unlock
-        if (updated.status === 'approved' && page === 'pending') {
+        const newStatus = updated.status;
+        if ((newStatus === 'active' || newStatus === 'approved') && page === 'pending') {
           showToast('🎉 Your payment has been approved! Pro Future unlocked.');
           setPage('pro');
-        } else if (updated.status === 'removed') {
-          setPage('denied');
+        } else if (newStatus === 'disabled' || newStatus === 'removed') {
+          if (page === 'pro') {
+            showToast('⚠️ Pro Future license has been revoked.');
+            setPage('denied');
+          }
         }
-      });
-      return () => unsubscribe();
-    }
-  }, [currentUser?.id, page]);
+      }
+    );
+    return () => unsubscribe();
+  }, [currentUser?.id, currentUser?.email, page]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -118,7 +128,7 @@ export default function App() {
     }, 2500);
   };
 
-  // User Login Handler (Cross-device Firebase Auth & Firestore)
+  // User Login Handler (Strictly standard user session)
   const handleLogin = async (email: string, pass: string): Promise<boolean> => {
     const res = await loginWithFirebase(email, pass);
     if (!res.success || !res.user) {
@@ -126,12 +136,11 @@ export default function App() {
       return false;
     }
 
-    // Standard user login is strictly a user session
     sessionStorage.removeItem('tl_admin_verified');
     const loggedUser: User = { ...res.user, role: 'user' };
     setCurrentUser(loggedUser);
 
-    if (loggedUser.status === 'removed') {
+    if (loggedUser.status === 'disabled' || loggedUser.status === 'removed') {
       setPage('denied');
     } else {
       setPage('dashboard');
@@ -141,7 +150,7 @@ export default function App() {
     return true;
   };
 
-  // User Registration Handler (Cross-device Firebase Auth & Firestore)
+  // User Registration Handler (Strictly standard user session)
   const handleRegister = async (email: string, pass: string): Promise<boolean> => {
     const res = await registerWithFirebase(email, pass);
     if (!res.success || !res.user) {
@@ -149,11 +158,11 @@ export default function App() {
       return false;
     }
 
-    // Standard user registration is strictly a user session
     sessionStorage.removeItem('tl_admin_verified');
     const newUser: User = { ...res.user, role: 'user' };
     setCurrentUser(newUser);
-    if (newUser.status === 'removed') {
+
+    if (newUser.status === 'disabled' || newUser.status === 'removed') {
       setPage('denied');
     } else {
       setPage('dashboard');
@@ -200,7 +209,7 @@ export default function App() {
     showToast('অ্যাডমিন প্যানেল থেকে সাইন আউট করা হয়েছে');
   };
 
-  // Submit Payment Request (Saves directly to Firebase Firestore for cross-device visibility)
+  // Submit Payment Request (Saves to Firestore for cross-device visibility)
   const handleSubmitPayment = async (payment: PaymentInfo) => {
     if (!currentUser) {
       showToast('অনুগ্রহ করে পেমেন্ট রিকোয়েস্ট পাঠাতে আগে লগইন করুন!');
@@ -212,10 +221,10 @@ export default function App() {
       const userId = currentUser.id || currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
       await submitPaymentToFirebase(userId, currentUser.email, payment);
 
-      // Optimistically update current local state while Firestore listener confirms
       const updatedUser: User = {
         ...currentUser,
         status: 'pending',
+        proAccess: false,
         payment,
       };
 
@@ -239,12 +248,12 @@ export default function App() {
       return;
     }
 
-    if (currentUser.status === 'removed') {
+    if (currentUser.status === 'disabled' || currentUser.status === 'removed') {
       setPage('denied');
       return;
     }
 
-    if (currentUser.status === 'approved') {
+    if (currentUser.status === 'active' || currentUser.status === 'approved' || currentUser.proAccess) {
       setPage('pro');
       return;
     }
@@ -257,58 +266,63 @@ export default function App() {
     setPage('paid');
   };
 
-  // Admin: Approve User Payment (Updates Firebase in real-time)
+  // Admin: Approve User Payment (Sets status to 'active', unlocks Pro Future)
   const handleApproveUser = async (email: string) => {
     try {
       await approvePaymentInFirebase(email);
       setUsers((prev) =>
         prev.map((u) =>
-          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'approved' } : u
+          u.email.toLowerCase() === email.toLowerCase()
+            ? { ...u, status: 'active', proAccess: true }
+            : u
         )
       );
       if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-        setCurrentUser({ ...currentUser, status: 'approved' });
+        setCurrentUser({ ...currentUser, status: 'active', proAccess: true });
       }
-      showToast(`Approved Pro Future access for ${email}`);
+      showToast(`Activated Pro Future for ${email}`);
     } catch (err) {
       console.error('Approve error', err);
       showToast('Error approving user in Firebase');
     }
   };
 
-  // Admin: Reject User Payment (Updates Firebase in real-time)
+  // Admin: Reject User Payment (Sets status to 'disabled')
   const handleRejectUser = async (email: string) => {
     try {
       await rejectPaymentInFirebase(email);
       setUsers((prev) =>
         prev.map((u) =>
-          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'rejected', payment: null } : u
+          u.email.toLowerCase() === email.toLowerCase()
+            ? { ...u, status: 'disabled', proAccess: false }
+            : u
         )
       );
       if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-        setCurrentUser({ ...currentUser, status: 'active', payment: null });
+        setCurrentUser({ ...currentUser, status: 'disabled', proAccess: false });
       }
-      showToast(`Payment request for ${email} was rejected`);
+      showToast(`Payment request for ${email} was rejected & disabled`);
     } catch (err) {
       console.error('Reject error', err);
       showToast('Error rejecting user in Firebase');
     }
   };
 
-  // Admin: Remove User / Revoke Access (Updates Firebase in real-time)
+  // Admin: Remove Active User / Revoke Access (Sets status to 'disabled')
   const handleRemoveUser = async (email: string) => {
     try {
       await removeUserInFirebase(email);
-      // Optimistically update local state immediately
       setUsers((prev) =>
         prev.map((u) =>
-          u.email.toLowerCase() === email.toLowerCase() ? { ...u, status: 'removed', payment: null } : u
+          u.email.toLowerCase() === email.toLowerCase()
+            ? { ...u, status: 'disabled', proAccess: false }
+            : u
         )
       );
       if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-        setCurrentUser({ ...currentUser, status: 'active', payment: null });
+        setCurrentUser({ ...currentUser, status: 'disabled', proAccess: false });
       }
-      showToast(`Revoked access for ${email}`);
+      showToast(`Access removed & disabled for ${email}`);
     } catch (err) {
       console.error('Remove error', err);
       showToast('Error removing user');
@@ -321,50 +335,49 @@ export default function App() {
       const count = await removeAllApprovedUsersInFirebase();
       setUsers((prev) =>
         prev.map((u) =>
-          u.status === 'approved' && u.role !== 'admin' ? { ...u, status: 'removed' } : u
+          (u.status === 'active' || u.status === 'approved') && u.role !== 'admin'
+            ? { ...u, status: 'disabled', proAccess: false }
+            : u
         )
       );
-      showToast(`Removed all ${count} approved users`);
+      showToast(`Revoked access for all ${count} active users`);
     } catch (err) {
       console.error('Remove all error', err);
       showToast('Error removing all approved users');
     }
   };
 
-  // Admin: Add sample test user in cloud
-  const handleAddTestUser = async () => {
-    const randomId = Math.floor(1000 + Math.random() * 9000);
-    const testEmail = `trader${randomId}_${Date.now()}@gmail.com`;
-    const payment: PaymentInfo = {
-      amount: 15,
-      method: Math.random() > 0.5 ? 'Binance' : 'bKash',
-      transactionId: `TRX${randomId}`,
-      date: new Date().toLocaleString(),
-    };
-
-    try {
-      const regRes = await registerWithFirebase(testEmail, 'password123');
-      if (regRes.user?.id) {
-        await submitPaymentToFirebase(regRes.user.id, testEmail, payment);
-      }
-      showToast(`Added test payment request for ${testEmail}`);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Admin: Reset to default demo data (cleans local view)
-  const handleResetDemoData = () => {
-    showToast('Database is synchronized in real-time with Firebase');
-  };
-
-  // If on admin view, render Admin Panel directly ONLY if verified as Admin
+  // Route: Admin Panel with strict permission guard
   if (page === 'admin') {
     const isVerifiedAdmin =
       currentUser?.role === 'admin' &&
       sessionStorage.getItem('tl_admin_verified') === 'true';
 
+    // If a normal logged-in user tries to enter admin area
     if (!isVerifiedAdmin) {
+      if (currentUser && currentUser.role === 'user') {
+        return (
+          <div className="min-h-screen bg-[#030916] font-sans antialiased text-white selection:bg-cyan-500/30 flex items-center justify-center p-4">
+            <Toast message={toastMessage} />
+            <div className="max-w-md w-full p-8 rounded-2xl bg-[#0c0517] border border-rose-500/50 shadow-[0_0_40px_rgba(244,63,94,0.2)] text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-rose-500/20 border border-rose-500/50 flex items-center justify-center text-rose-400">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+              <h2 className="text-2xl font-black text-white mb-2">Access Denied</h2>
+              <p className="text-sm text-slate-300 mb-6 leading-relaxed">
+                সাধারণ ইউজার একাউন্ট দিয়ে এডমিন প্যানেলে প্রবেশ করা নিষিদ্ধ। শুধুমাত্র অথোরাইজড এডমিন ক্রেডেনশিয়াল প্রয়োজন।
+              </p>
+              <button
+                onClick={() => setPage('dashboard')}
+                className="w-full h-11 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-white font-bold text-sm shadow-lg transition cursor-pointer"
+              >
+                Return to User Dashboard
+              </button>
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen bg-[#030916] font-sans antialiased text-white selection:bg-cyan-500/30">
           <Toast message={toastMessage} />
@@ -385,12 +398,11 @@ export default function App() {
         <Toast message={toastMessage} />
         <AdminPanel
           users={users}
+          paymentRequests={paymentRequests}
           onApproveUser={handleApproveUser}
           onRejectUser={handleRejectUser}
           onRemoveUser={handleRemoveUser}
           onRemoveAllApproved={handleRemoveAllApproved}
-          onAddTestUser={handleAddTestUser}
-          onResetDemoData={handleResetDemoData}
           onNavigate={setPage}
           onLogoutAdmin={handleLogoutAdmin}
         />
@@ -398,7 +410,7 @@ export default function App() {
     );
   }
 
-  // If on auth screens
+  // Auth screens (Login, Register, Admin Login)
   if (page === 'login' || page === 'register' || page === 'adminLogin') {
     return (
       <div className="min-h-screen bg-[#030916] font-sans antialiased text-white selection:bg-cyan-500/30">
@@ -469,17 +481,21 @@ export default function App() {
         </main>
       </div>
 
-      {/* Persistent Quick Navigation Footer */}
+      {/* Persistent Footer */}
       <footer className="w-full py-4 border-t border-slate-800/80 bg-[#020713]/80 backdrop-blur text-center text-xs text-slate-500 flex flex-wrap items-center justify-center gap-4 px-4">
         <span>TRADE LENS © 2026. All rights reserved.</span>
-        <span className="hidden sm:inline">•</span>
-        <button
-          id="footer-admin-link"
-          onClick={() => setPage('adminLogin')}
-          className="text-purple-400 hover:text-purple-300 transition underline underline-offset-2 cursor-pointer"
-        >
-          Admin Portal
-        </button>
+        {currentUser?.role !== 'user' && (
+          <>
+            <span className="hidden sm:inline">•</span>
+            <button
+              id="footer-admin-link"
+              onClick={() => setPage('adminLogin')}
+              className="text-purple-400 hover:text-purple-300 transition underline underline-offset-2 cursor-pointer"
+            >
+              Admin Portal
+            </button>
+          </>
+        )}
         <span className="hidden sm:inline">•</span>
         <button
           id="footer-free-bot-link"
