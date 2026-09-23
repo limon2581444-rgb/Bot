@@ -1,6 +1,6 @@
 import { User } from '../types';
 
-export const ADMIN_EMAIL = 'limon2581444@gmail.com';
+export const ADMIN_EMAIL = 'limon258145@gmail.com';
 export const ADMIN_PASSWORD = 'limonAbc123';
 export const ADMIN_NUMBER = '01712345678';
 export const ADMIN_DEMO_ID = '00000000';

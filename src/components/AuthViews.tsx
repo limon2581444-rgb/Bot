@@ -245,15 +245,10 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
 
         {page === 'adminLogin' && (
           <form id="form-admin-login" onSubmit={handleAdminSubmit} className="space-y-4">
-            <div className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 text-xs text-purple-200 leading-relaxed space-y-1">
-              <p>🔒 অ্যাডমিন প্যানেল শুধুমাত্র অনুমোদিত <strong>অ্যাডমিন নাম্বার / জিমেইল</strong> এবং <strong>অ্যাডমিন পাসওয়ার্ড</strong> দিয়ে প্রবেশ করা যাবে।</p>
-              <p className="text-[11px] text-purple-300/80 font-mono">Demo Admin: <strong>00000000</strong> | Password: <strong>00000000</strong></p>
-            </div>
-
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-purple-400" />
-                Admin Number / Email (অ্যাডমিন নাম্বার বা জিমেইল)
+                Email / Admin ID
               </label>
               <div className="relative">
                 <input
@@ -261,7 +256,7 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
                   type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="00000000 or Admin Gmail"
+                  placeholder=""
                   autoComplete="off"
                   required
                   className="w-full h-11 px-3.5 rounded-xl bg-[#140f2e] border border-purple-800/60 focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 text-sm text-white placeholder:text-slate-500 outline-none transition"
@@ -272,7 +267,7 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-purple-400" />
-                Admin Password (অ্যাডমিন পাসওয়ার্ড)
+                Password
               </label>
               <div className="relative">
                 <input
@@ -280,7 +275,7 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="00000000 or secret password"
+                  placeholder=""
                   autoComplete="off"
                   required
                   className="w-full h-11 px-3.5 pr-11 rounded-xl bg-[#140f2e] border border-purple-800/60 focus:border-purple-400 focus:ring-2 focus:ring-purple-400/20 text-sm text-white placeholder:text-slate-500 outline-none transition"
