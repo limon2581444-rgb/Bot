@@ -41,7 +41,7 @@ interface AdminPanelProps {
   onAcceptUser?: (email: string, userName?: string) => void;
   onActivateProUser?: (email: string, userName?: string) => void;
   onApproveUser: (email: string, userName?: string) => void;
-  onRejectUser: (email: string, userName?: string, reason?: string) => void;
+  onRejectUser: (email: string, userName?: string) => void;
   onRemoveUser: (email: string, userName?: string) => void;
   onRemoveAllApproved?: () => void;
   onNavigate: (page: Page) => void;
@@ -69,8 +69,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [auditActionFilter, setAuditActionFilter] = useState<'ALL' | AuditActionType>('ALL');
   const [confirmingRemoveUser, setConfirmingRemoveUser] = useState<User | null>(null);
-  const [confirmingApproveUser, setConfirmingApproveUser] = useState<User | null>(null);
-  const [rejectingUserModal, setRejectingUserModal] = useState<{ user: User; reason: string } | null>(null);
   const [actionLoadingEmail, setActionLoadingEmail] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [proActiveViewMode, setProActiveViewMode] = useState<'cards' | 'table'>('cards');
@@ -272,30 +270,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  const handleConfirmApprove = async (user: User) => {
-    setActionLoadingEmail(user.email);
-    try {
-      if (onActivateProUser) {
-        await onActivateProUser(user.email, getUserDisplayName(user));
-      } else {
-        await onApproveUser(user.email, getUserDisplayName(user));
-      }
-      setConfirmingApproveUser(null);
-    } finally {
-      setActionLoadingEmail(null);
-    }
-  };
-
-  const handleConfirmReject = async (user: User, reason: string) => {
-    setActionLoadingEmail(user.email);
-    try {
-      await onRejectUser(user.email, getUserDisplayName(user), reason);
-      setRejectingUserModal(null);
-    } finally {
-      setActionLoadingEmail(null);
-    }
-  };
-
   return (
     <div id="admin-panel" className="min-h-screen bg-[#030611] text-white p-4 md:p-8 font-sans">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -485,7 +459,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               Dashboard
             </button>
 
-            {/* 2. Pro Requests */}
+            {/* 2. Pending Requests */}
             <button
               id="tab-pending-requests"
               onClick={() => setActiveTab('pending')}
@@ -496,7 +470,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               }`}
             >
               <Clock className="w-4 h-4" />
-              Pro Requests ({pendingCount})
+              Pending ({pendingCount})
             </button>
 
             {/* 3. Accepted / Ready to Activate */}
@@ -911,7 +885,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         )}
 
         {/* ========================================================================= */}
-        {/* SECTION 2: PRO REQUESTS (PENDING APPROVALS) */}
+        {/* SECTION 2: PENDING REQUESTS */}
         {/* ========================================================================= */}
         {activeTab === 'pending' && (
           <div id="section-pending-requests" className="space-y-4">
@@ -919,10 +893,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Clock className="w-5 h-5 text-amber-400" />
-                  Pro Requests (Pending Approvals)
+                  Pending Payment Requests
                 </h3>
                 <p className="text-xs text-amber-200/80 mt-0.5">
-                  Users who submitted Pro subscription payment requests awaiting administrator review. Approving activates Pro Future.
+                  Users who submitted payment proof awaiting manual approval. Accepting automatically promotes user to PRO ACTIVE.
                 </p>
               </div>
               <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 self-start sm:self-auto">
@@ -932,177 +906,115 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
             <div className="rounded-2xl border border-amber-500/30 bg-[#070919] overflow-hidden shadow-[0_0_35px_rgba(245,158,11,0.12)]">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[1100px]">
+                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[950px]">
                   <thead>
                     <tr className="bg-[#1b1405] border-b border-amber-500/30 text-amber-300 uppercase text-[11px] font-bold tracking-wider">
-                      <th className="py-3.5 px-3 w-10 text-center">#</th>
-                      <th className="py-3.5 px-3">Request ID</th>
-                      <th className="py-3.5 px-4">User Name</th>
-                      <th className="py-3.5 px-4">User Email / Phone</th>
-                      <th className="py-3.5 px-3">User ID</th>
-                      <th className="py-3.5 px-3">Selected Plan</th>
-                      <th className="py-3.5 px-3">Amount</th>
+                      <th className="py-3.5 px-4 w-12 text-center">#</th>
+                      <th className="py-3.5 px-4">Name</th>
+                      <th className="py-3.5 px-4">Gmail</th>
                       <th className="py-3.5 px-4">Transaction ID</th>
-                      <th className="py-3.5 px-4">Payment Date/Time</th>
-                      <th className="py-3.5 px-3 text-center">Status</th>
-                      <th className="py-3.5 px-4 text-center">Actions</th>
+                      <th className="py-3.5 px-4">Method</th>
+                      <th className="py-3.5 px-4">Amount</th>
+                      <th className="py-3.5 px-4">Request Date</th>
+                      <th className="py-3.5 px-4 text-center">Status</th>
+                      <th className="py-3.5 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-sans">
                     {processList(pendingUsers).length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-500">
-                          {searchTerm ? 'No pending requests match your search' : 'No pending Pro requests right now'}
+                        <td colSpan={9} className="py-12 text-center text-slate-500">
+                          {searchTerm ? 'No pending requests match your search' : 'No pending payment requests right now'}
                         </td>
                       </tr>
                     ) : (
-                      processList(pendingUsers).map((user, idx) => {
-                        const reqId = `REQ-${(user.id || user.email).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()}`;
-                        const userId = user.id || user.email.split('@')[0];
-                        const isActionLoading = actionLoadingEmail === user.email;
+                      processList(pendingUsers).map((user, idx) => (
+                        <tr key={user.id || user.email} className="hover:bg-amber-500/[0.04] transition">
+                          {/* 1. Serial Number */}
+                          <td className="py-3.5 px-4 text-center font-mono text-slate-400 text-xs font-bold">
+                            {idx + 1}
+                          </td>
 
-                        return (
-                          <tr key={user.id || user.email} className="hover:bg-amber-500/[0.04] transition">
-                            {/* 1. Serial Number */}
-                            <td className="py-3.5 px-3 text-center font-mono text-slate-400 text-xs font-bold">
-                              {idx + 1}
-                            </td>
+                          {/* 2. Name */}
+                          <td className="py-3.5 px-4 font-bold text-white">
+                            {getUserDisplayName(user)}
+                          </td>
 
-                            {/* 2. Request ID */}
-                            <td className="py-3.5 px-3 font-mono text-xs text-amber-300 font-bold whitespace-nowrap">
-                              <span className="flex items-center gap-1">
-                                {reqId}
+                          {/* 3. Gmail */}
+                          <td className="py-3.5 px-4 font-mono text-slate-300">
+                            {user.email}
+                          </td>
+
+                          {/* 4. Transaction ID */}
+                          <td className="py-3.5 px-4 font-mono font-bold text-amber-300">
+                            <span className="flex items-center gap-1">
+                              {user.payment?.transactionId || '—'}
+                              {user.payment?.transactionId && (
                                 <button
-                                  onClick={() => handleCopy(reqId, `req-${idx}`)}
-                                  className="text-slate-500 hover:text-white"
-                                  title="Copy Request ID"
+                                  onClick={() => handleCopy(user.payment!.transactionId!, `pending-${idx}`)}
+                                  className="text-slate-400 hover:text-white ml-1"
+                                  title="Copy TrxID"
                                 >
-                                  {copiedId === `req-${idx}` ? (
+                                  {copiedId === `pending-${idx}` ? (
                                     <Check className="w-3 h-3 text-emerald-400" />
                                   ) : (
                                     <Copy className="w-3 h-3" />
                                   )}
                                 </button>
-                              </span>
-                            </td>
+                              )}
+                            </span>
+                          </td>
 
-                            {/* 3. User Name */}
-                            <td className="py-3.5 px-4 font-bold text-white whitespace-nowrap">
-                              {getUserDisplayName(user)}
-                            </td>
+                          {/* 5. Payment Method */}
+                          <td className="py-3.5 px-4">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              {user.payment?.method || 'Binance'}
+                            </span>
+                          </td>
 
-                            {/* 4. User Email / Phone */}
-                            <td className="py-3.5 px-4 font-mono text-slate-300">
-                              <span className="flex items-center gap-1">
-                                {user.email}
-                                <button
-                                  onClick={() => handleCopy(user.email, `email-${idx}`)}
-                                  className="text-slate-500 hover:text-white"
-                                  title="Copy Email"
-                                >
-                                  {copiedId === `email-${idx}` ? (
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                  ) : (
-                                    <Copy className="w-3 h-3" />
-                                  )}
-                                </button>
-                              </span>
-                            </td>
+                          {/* 6. Amount */}
+                          <td className="py-3.5 px-4 font-extrabold text-cyan-300">
+                            ${user.payment?.amount || 30} USD
+                          </td>
 
-                            {/* 5. User ID */}
-                            <td className="py-3.5 px-3 font-mono text-[11px] text-slate-400 whitespace-nowrap">
-                              <span className="flex items-center gap-1">
-                                <span className="max-w-[80px] truncate">{userId}</span>
-                                <button
-                                  onClick={() => handleCopy(userId, `uid-${idx}`)}
-                                  className="text-slate-500 hover:text-white"
-                                  title="Copy User ID"
-                                >
-                                  {copiedId === `uid-${idx}` ? (
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                  ) : (
-                                    <Copy className="w-3 h-3" />
-                                  )}
-                                </button>
-                              </span>
-                            </td>
+                          {/* 7. Request Date */}
+                          <td className="py-3.5 px-4 text-xs text-slate-300">
+                            {user.payment?.date || user.created || 'Recent'}
+                          </td>
 
-                            {/* 6. Selected Pro Plan */}
-                            <td className="py-3.5 px-3 whitespace-nowrap">
-                              <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                                {user.plan || 'PRO FUTURE ($30)'}
-                              </span>
-                            </td>
+                          {/* 8. Status */}
+                          <td className="py-3.5 px-4 text-center">
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/50">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
+                              PENDING
+                            </span>
+                          </td>
 
-                            {/* 7. Payment Amount */}
-                            <td className="py-3.5 px-3 font-extrabold text-cyan-300 whitespace-nowrap">
-                              ${user.payment?.amount || 30} USD
-                            </td>
-
-                            {/* 8. Transaction ID */}
-                            <td className="py-3.5 px-4 font-mono font-bold text-amber-300 whitespace-nowrap">
-                              <span className="flex items-center gap-1">
-                                <span className="bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/30">
-                                  {user.payment?.transactionId || '—'}
-                                </span>
-                                {user.payment?.transactionId && (
-                                  <button
-                                    onClick={() => handleCopy(user.payment!.transactionId!, `trx-${idx}`)}
-                                    className="text-slate-400 hover:text-white"
-                                    title="Copy TrxID"
-                                  >
-                                    {copiedId === `trx-${idx}` ? (
-                                      <Check className="w-3 h-3 text-emerald-400" />
-                                    ) : (
-                                      <Copy className="w-3 h-3" />
-                                    )}
-                                  </button>
-                                )}
-                              </span>
-                              <span className="block text-[10px] text-slate-400 font-normal mt-0.5">
-                                via {user.payment?.method || 'Binance'}
-                              </span>
-                            </td>
-
-                            {/* 9. Payment Date / Time */}
-                            <td className="py-3.5 px-4 text-xs text-slate-300 whitespace-nowrap">
-                              {user.payment?.date || user.created || 'Recent'}
-                            </td>
-
-                            {/* 10. Status */}
-                            <td className="py-3.5 px-3 text-center whitespace-nowrap">
-                              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/50">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                                PENDING
-                              </span>
-                            </td>
-
-                            {/* 11. Actions: APPROVE & REJECT */}
-                            <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                              <div className="flex items-center justify-center gap-2">
-                                <button
-                                  onClick={() => setConfirmingApproveUser(user)}
-                                  disabled={isActionLoading}
-                                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-extrabold text-xs shadow-md transition cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="Open confirmation modal to Approve Pro Request"
-                                >
-                                  <Check className="w-3.5 h-3.5" />
-                                  Approve
-                                </button>
-                                <button
-                                  onClick={() => setRejectingUserModal({ user, reason: 'Invalid Transaction ID' })}
-                                  disabled={isActionLoading}
-                                  className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 font-bold text-xs transition cursor-pointer flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="Open rejection modal to Reject Request"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                  Reject
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
+                          {/* 9. Actions: ACCEPT & REMOVE/REJECT */}
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => handleAccept(user.email, getUserDisplayName(user))}
+                                disabled={actionLoadingEmail === user.email}
+                                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110 text-white font-extrabold text-xs shadow-md transition cursor-pointer flex items-center gap-1"
+                                title="Accept Payment & Move to Ready to Activate"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleDisableOrReject(user.email, getUserDisplayName(user))}
+                                disabled={actionLoadingEmail === user.email}
+                                className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 font-bold text-xs transition cursor-pointer flex items-center gap-1"
+                                title="Reject & Move to Disabled"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                                Remove
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
@@ -2120,146 +2032,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   <UserX className="w-4 h-4" />
                   Yes, Remove User
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* CONFIRMATION POPUP MODAL (FOR APPROVE PRO REQUEST) */}
-        {/* ========================================================================= */}
-        {confirmingApproveUser && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="max-w-md w-full p-6 rounded-2xl bg-[#06141a] border border-emerald-500/50 shadow-[0_0_50px_rgba(16,185,129,0.3)] text-left space-y-4">
-              <div className="flex items-center gap-3 text-emerald-400">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold text-white">Approve Pro Request?</h4>
-                  <p className="text-xs text-emerald-300/80">Are you sure you want to approve this Pro request?</p>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-slate-300 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">User Name:</span>
-                  <span className="font-bold text-white">{getUserDisplayName(confirmingApproveUser)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Gmail:</span>
-                  <span className="font-mono text-cyan-300">{confirmingApproveUser.email}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Selected Plan:</span>
-                  <span className="font-semibold text-purple-300">{confirmingApproveUser.plan || 'PRO FUTURE Lifetime'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Amount:</span>
-                  <span className="font-bold text-cyan-300">${confirmingApproveUser.payment?.amount || 30} USD</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Transaction ID:</span>
-                  <span className="font-mono text-amber-300">{confirmingApproveUser.payment?.transactionId || '—'}</span>
-                </div>
-                <div className="pt-2 border-t border-white/10 text-[11px] text-emerald-300/90 leading-relaxed">
-                  ✓ <strong>Backend Verification:</strong> Request status will become <strong>"approved"</strong>, User proStatus will become <strong>"active"</strong>, Pro Future bot script access will unlock immediately, and an audit log event will be recorded.
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmingApproveUser(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleConfirmApprove(confirmingApproveUser)}
-                  disabled={actionLoadingEmail === confirmingApproveUser.email}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-xs font-bold shadow-lg transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <Check className="w-4 h-4" />
-                  Confirm & Approve
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* REJECTION REASON MODAL (FOR REJECT PRO REQUEST) */}
-        {/* ========================================================================= */}
-        {rejectingUserModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <div className="max-w-md w-full p-6 rounded-2xl bg-[#1c0812] border border-rose-500/50 shadow-[0_0_50px_rgba(244,63,94,0.3)] text-left space-y-4">
-              <div className="flex items-center gap-3 text-rose-400">
-                <div className="w-12 h-12 rounded-xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
-                  <AlertCircle className="w-6 h-6 text-rose-400" />
-                </div>
-                <div>
-                  <h4 className="text-lg font-bold text-white">Reject Pro Request?</h4>
-                  <p className="text-xs text-rose-300/80">Select or enter a reason for rejecting this payment proof</p>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 text-xs text-slate-300 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">User:</span>
-                  <span className="font-mono text-white">{rejectingUserModal.user.email}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Transaction ID:</span>
-                  <span className="font-mono text-amber-300">{rejectingUserModal.user.payment?.transactionId || '—'}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-300 block">Rejection Reason:</label>
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {['Invalid Transaction ID', 'Payment not received', 'Duplicate request', 'Incorrect amount'].map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => setRejectingUserModal({ ...rejectingUserModal, reason: preset })}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer border ${
-                        rejectingUserModal.reason === preset
-                          ? 'bg-rose-500 text-white border-rose-400'
-                          : 'bg-black/30 text-slate-300 border-white/10 hover:border-rose-400/40'
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="text"
-                  value={rejectingUserModal.reason}
-                  onChange={(e) => setRejectingUserModal({ ...rejectingUserModal, reason: e.target.value })}
-                  placeholder="Enter rejection reason..."
-                  className="w-full h-10 px-3 rounded-xl bg-black/50 border border-rose-500/40 focus:border-rose-400 text-xs text-white outline-none"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setRejectingUserModal(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleConfirmReject(rejectingUserModal.user, rejectingUserModal.reason)}
-                  disabled={actionLoadingEmail === rejectingUserModal.user.email}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:brightness-110 text-white text-xs font-bold shadow-lg transition cursor-pointer flex items-center gap-1.5"
-                >
-                  <X className="w-4 h-4" />
-                  Confirm Rejection
                 </button>
               </div>
             </div>

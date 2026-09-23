@@ -247,13 +247,13 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
           <form id="form-admin-login" onSubmit={handleAdminSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-purple-400" />
-                Admin Gmail
+                <KeyRound className="w-3.5 h-3.5 text-purple-400" />
+                Email / Admin ID
               </label>
               <div className="relative">
                 <input
                   id="admin-email-input"
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder=""

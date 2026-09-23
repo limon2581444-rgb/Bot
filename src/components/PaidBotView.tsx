@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Page, User, PaymentInfo } from '../types';
-import { TELEGRAM_URL, TELEGRAM_USERNAME } from '../data/constants';
-import { fetchProBotScriptApi } from '../lib/api';
+import { PAID_BOT_URL, TELEGRAM_URL, TELEGRAM_USERNAME } from '../data/constants';
 import {
   Crown,
   Copy,
@@ -55,44 +54,22 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
     window.open(TELEGRAM_URL, '_blank', 'noopener,noreferrer');
   };
 
-  const [verifiedScript, setVerifiedScript] = useState<string>('');
-
-  // Fetch verified script on load if approved
-  React.useEffect(() => {
-    if (isApproved && currentUser) {
-      fetchProBotScriptApi(currentUser.id, currentUser.email).then((res) => {
-        if (res.success && res.script) {
-          setVerifiedScript(res.script);
-        }
-      });
-    }
-  }, [isApproved, currentUser]);
-
-  const handleCopy = async () => {
-    if (!currentUser) {
-      showToast('🔒 Please sign in to access Pro script');
+  const handleCopy = () => {
+    if (!isApproved) {
+      showToast('🔒 Script is locked until approved by an administrator!');
       return;
     }
 
-    try {
-      let scriptToCopy = verifiedScript;
-      if (!scriptToCopy) {
-        const res = await fetchProBotScriptApi(currentUser.id, currentUser.email);
-        if (!res.success || !res.script) {
-          showToast(res.error || '🔒 Script is locked until verified by an administrator!');
-          return;
-        }
-        scriptToCopy = res.script;
-        setVerifiedScript(scriptToCopy);
-      }
-
-      await navigator.clipboard.writeText(scriptToCopy);
-      setCopied(true);
-      showToast('Pro Future Bot script copied to clipboard!');
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      showToast('Failed to copy script');
-    }
+    navigator.clipboard
+      .writeText(PAID_BOT_URL)
+      .then(() => {
+        setCopied(true);
+        showToast('Pro Future Bot script copied to clipboard!');
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        showToast('Failed to copy script');
+      });
   };
 
   const handlePayNow = async () => {
@@ -168,7 +145,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 </span>
               </div>
               <code className="block text-xs font-mono break-all text-purple-200 select-all leading-relaxed pr-12">
-                {verifiedScript || 'javascript:(function(){/* Pro Future Bot verified license loaded */})();'}
+                {PAID_BOT_URL}
               </code>
               <button
                 onClick={handleCopy}

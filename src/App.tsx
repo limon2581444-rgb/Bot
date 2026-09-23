@@ -325,22 +325,22 @@ export default function App() {
   // Backwards compatibility alias
   const handleApproveUser = handleAcceptUser;
 
-  // Admin: Reject User Payment (Sets status to 'rejected')
-  const handleRejectUser = async (email: string, userName?: string, reason?: string) => {
+  // Admin: Reject User Payment (Sets status to 'disabled')
+  const handleRejectUser = async (email: string, userName?: string) => {
     try {
-      const adminEmail = currentUser?.email || 'limon258144@gmail.com';
-      await rejectPaymentInFirebase(email, adminEmail, userName, reason);
+      const adminEmail = currentUser?.email || 'limon2581444@gmail.com';
+      await rejectPaymentInFirebase(email, adminEmail, userName);
       setUsers((prev) =>
         prev.map((u) =>
           u.email.toLowerCase() === email.toLowerCase()
-            ? { ...u, status: 'rejected', proAccess: false }
+            ? { ...u, status: 'disabled', proAccess: false }
             : u
         )
       );
       if (currentUser && currentUser.email.toLowerCase() === email.toLowerCase()) {
-        setCurrentUser({ ...currentUser, status: 'rejected', proAccess: false });
+        setCurrentUser({ ...currentUser, status: 'disabled', proAccess: false });
       }
-      showToast(`Payment request for ${email} was rejected`);
+      showToast(`Payment request for ${email} was rejected & disabled`);
     } catch (err) {
       console.error('Reject error', err);
       showToast('Error rejecting user in Firebase');

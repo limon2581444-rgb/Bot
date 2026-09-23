@@ -27,8 +27,6 @@ export interface User {
   name?: string;
   email: string;
   status: UserStatus;
-  proStatus?: 'none' | 'pending' | 'active' | 'rejected' | 'disabled' | string;
-  plan?: string;
   role?: 'admin' | 'user';
   payment?: PaymentInfo | null;
   created?: string;

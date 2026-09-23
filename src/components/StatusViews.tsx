@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Page, User } from '../types';
-import { fetchProBotScriptApi } from '../lib/api';
+import { PAID_BOT_URL } from '../data/constants';
 import { CheckCircle2, Lock, Crown, ArrowLeft, Copy, Check, Sparkles, Shield, Cpu, Clock } from 'lucide-react';
 
 interface StatusViewsProps {
@@ -17,32 +17,10 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
   showToast,
 }) => {
   const [copied, setCopied] = useState(false);
-  const [proScript, setProScript] = useState<string>('');
 
-  useEffect(() => {
-    if (type === 'pro' && currentUser) {
-      fetchProBotScriptApi(currentUser.id, currentUser.email).then((res) => {
-        if (res.success && res.script) {
-          setProScript(res.script);
-        }
-      });
-    }
-  }, [type, currentUser]);
-
-  const handleCopyPro = async () => {
-    let scriptToCopy = proScript;
-    if (!scriptToCopy) {
-      const res = await fetchProBotScriptApi(currentUser.id, currentUser.email);
-      if (!res.success || !res.script) {
-        showToast(res.error || 'Pro Future script is locked');
-        return;
-      }
-      scriptToCopy = res.script;
-      setProScript(scriptToCopy);
-    }
-
+  const handleCopyPro = () => {
     navigator.clipboard
-      .writeText(scriptToCopy)
+      .writeText(PAID_BOT_URL)
       .then(() => {
         setCopied(true);
         showToast('Pro Future script copied to clipboard!');
@@ -296,7 +274,7 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
             id="pro-bot-code-display"
             className="block text-xs font-mono text-purple-200 break-all pr-12 leading-relaxed selection:bg-purple-500/50 select-all"
           >
-            {proScript || 'javascript:(function(){/* Trade Lens Pro Future Bot authorized script */})();'}
+            {PAID_BOT_URL}
           </code>
 
           <button
