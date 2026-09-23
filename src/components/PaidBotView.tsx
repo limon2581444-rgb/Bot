@@ -39,12 +39,10 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   const [transactionCode, setTransactionCode] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isApproved =
-    (currentUser?.status === 'approved' ||
-      currentUser?.status === 'active' ||
-      !!currentUser?.proAccess) &&
-    currentUser?.status !== 'disabled' &&
-    currentUser?.status !== 'removed';
+  const isProActive =
+    (currentUser?.role === 'admin' || currentUser?.proAccess === true) &&
+    (currentUser?.status === 'active' || currentUser?.status === 'approved');
+  const isAccepted = currentUser?.status === 'accepted';
   const isPending = currentUser?.status === 'pending';
   const isCodeValid = transactionCode.trim().length > 0;
 
@@ -55,8 +53,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   };
 
   const handleCopy = () => {
-    if (!isApproved) {
-      showToast('🔒 Script is locked until approved by an administrator!');
+    if (!isProActive) {
+      showToast('🔒 Script is locked until manually activated by Admin!');
       return;
     }
 
@@ -113,8 +111,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   return (
     <div id="paid-bot-view" className="w-full max-w-2xl mx-auto px-4 py-8 md:py-12">
       <div className="p-6 md:p-8 rounded-2xl bg-gradient-to-br from-[#0c0824] to-[#040212] border border-[#9c28ed] shadow-[0_0_40px_rgba(156,40,237,0.2)] relative">
-        {/* If user is ALREADY APPROVED, show the unlocked script interface */}
-        {isApproved ? (
+        {/* 1. PRO ACTIVE: Show unlocked script interface */}
+        {isProActive ? (
           <div>
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-500 text-white shadow-lg">
@@ -122,9 +120,9 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-2xl font-bold text-white">Pro Future Bot</h2>
+                  <h2 className="text-2xl font-bold text-white">Pro Feature Bot</h2>
                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-400 text-black">
-                    APPROVED & ACTIVE
+                    ACTIVATED & UNLOCKED
                   </span>
                 </div>
                 <p className="text-xs md:text-sm text-slate-400 mt-0.5">
@@ -161,7 +159,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 onClick={handleCopy}
                 className="flex-1 h-14 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:brightness-110 text-white font-bold text-base shadow-[0_4px_25px_rgba(16,185,129,0.35)] flex items-center justify-center gap-2 transition cursor-pointer"
               >
-                {copied ? '✓ Script Copied!' : '♛ Copy Pro Future Script'}
+                {copied ? '✓ Script Copied!' : '♛ Copy Pro Feature Script'}
               </button>
               <button
                 onClick={() => onNavigate('dashboard')}
@@ -172,8 +170,100 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </button>
             </div>
           </div>
+        ) : isAccepted ? (
+          /* 2. ACCEPTED / WAITING FOR ACTIVATION VIEW: Pro Feature remains strictly LOCKED */
+          <div id="paid-bot-accepted-view" className="space-y-6">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-cyan-600 to-blue-700 text-white shadow-[0_0_25px_rgba(6,182,212,0.35)]">
+                <Clock className="w-7 h-7 text-cyan-200 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-2xl font-black text-white">Payment Accepted / Waiting for Activation</h2>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-cyan-400/20 text-cyan-300 border border-cyan-400/40 uppercase tracking-wider flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                    Waiting for Admin Activation
+                  </span>
+                </div>
+                <p className="text-xs md:text-sm text-cyan-200/90 mt-0.5">
+                  পেমেন্ট গ্রহণ করা হয়েছে • এডমিন অ্যাক্টিভেশনের অপেক্ষায় (Pro Feature LOCKED)
+                </p>
+              </div>
+            </div>
+
+            {/* Prominent Status Notice Card */}
+            <div className="p-5 rounded-xl bg-[#061828] border-2 border-cyan-500/60 shadow-[0_0_30px_rgba(6,182,212,0.2)] space-y-4">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+                <div className="text-xs md:text-sm text-cyan-100 leading-relaxed">
+                  <p className="font-bold text-cyan-300 text-sm mb-1">
+                    পেমেন্ট ভেরিফাই হয়েছে, কিন্তু Pro Feature এখনও সক্রিয় (Active) করা হয়নি
+                  </p>
+                  <p className="text-slate-300 text-xs leading-relaxed">
+                    আপনার পেমেন্ট এডমিন সফলভাবে যাচাই ও এক্সেপ্ট করেছেন। নিয়ম অনুযায়ী, এডমিন যতক্ষণ না ম্যানুয়ালি <strong className="text-cyan-300">"ACTIVATE PRO"</strong> বাটনে ক্লিক করবেন, ততক্ষণ Pro Feature লক থাকবে। এডমিন অ্যাক্টিভেট করার সাথে সাথেই এটি আনলক হয়ে যাবে।
+                  </p>
+                </div>
+              </div>
+
+              {/* Submitted Details Box */}
+              <div className="p-4 rounded-lg bg-[#040c16] border border-cyan-500/30 text-xs space-y-2">
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Payment Status:</span>
+                  <strong className="text-cyan-300 font-bold">ACCEPTED / WAITING FOR ACTIVATION</strong>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Pro Feature Status:</span>
+                  <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                    🔒 LOCKED (Awaiting Admin Activation)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Submitted Amount:</span>
+                  <strong className="text-white font-mono text-sm">${currentUser?.payment?.amount || amount || 30} USD</strong>
+                </div>
+                <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                  <span className="text-slate-400">Payment Method:</span>
+                  <strong className="text-cyan-400 font-semibold">{currentUser?.payment?.method || selectedMethod}</strong>
+                </div>
+                {currentUser?.payment?.transactionId && (
+                  <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
+                    <span className="text-slate-400">Transaction ID / TrxID:</span>
+                    <strong className="text-amber-300 font-mono tracking-wider">{currentUser.payment.transactionId}</strong>
+                  </div>
+                )}
+                {currentUser?.acceptedDate && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400">Accepted Date:</span>
+                    <span className="text-slate-300 font-mono text-xs">{currentUser.acceptedDate}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-500/30 flex items-center gap-2.5 text-[11px] text-cyan-200">
+                <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
+                <span>রিয়েল-টাইম সিঙ্ক সক্রিয়: এডমিন প্যানেল থেকে ACTIVATE PRO করার সাথে সাথেই আনলক হবে।</span>
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
+              <button
+                onClick={() => onNavigate('dashboard')}
+                className="flex-1 h-12 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110 text-white font-bold text-xs md:text-sm flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+              >
+                Back to Dashboard
+              </button>
+              <button
+                onClick={() => window.open(TELEGRAM_URL, '_blank', 'noopener,noreferrer')}
+                className="h-12 px-6 rounded-xl border border-cyan-800/60 hover:bg-cyan-950/40 text-cyan-200 text-xs md:text-sm font-semibold flex items-center justify-center gap-2 transition cursor-pointer"
+              >
+                <Send className="w-4 h-4" />
+                Contact Admin (@{TELEGRAM_USERNAME})
+              </button>
+            </div>
+          </div>
         ) : isPending ? (
-          /* PENDING APPROVAL VIEW */
+          /* 3. PENDING APPROVAL VIEW */
           <div id="paid-bot-pending-view" className="space-y-6">
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-amber-500 to-yellow-600 text-white shadow-[0_0_25px_rgba(245,158,11,0.35)]">
@@ -202,7 +292,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                     এডমিন অ্যাপ্রুভ না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে
                   </p>
                   <p className="text-slate-300 text-xs leading-relaxed">
-                    আপনার দেওয়া ট্রানজেকশন তথ্য এডমিন প্যানেলের <strong className="text-amber-300">Pending Requests</strong> তালিকায় জমা রয়েছে। এডমিন ভেরিফাই করে অনুমোদন (Approve) না করা পর্যন্ত বটটি লক থাকবে। এডমিন অনুমোদন দেওয়ার সাথে সাথেই প্রো ফিউচার বটের সম্পূর্ণ কোড ও ফিচার স্বয়ংক্রিয়ভাবে আনলক হয়ে যাবে।
+                    আপনার দেওয়া ট্রানজেকশন তথ্য এডমিন প্যানেলের <strong className="text-amber-300">Pending Requests</strong> তালিকায় জমা রয়েছে। এডমিন ভেরিফাই করে অনুমোদন (Accept ও Activate) না করা পর্যন্ত Pro Feature সম্পূর্ণ লক থাকবে।
                   </p>
                 </div>
               </div>
@@ -231,7 +321,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
               <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-500/20 flex items-center gap-2.5 text-[11px] text-cyan-200">
                 <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span>রিয়েল-টাইম সিঙ্ক সক্রিয়: পেজ রিফ্রেশ ছাড়াই এডমিন অ্যাপ্রুভ করলে সাথে সাথে আনলক হবে।</span>
+                <span>রিয়েল-টাইম সিঙ্ক সক্রিয়: পেজ রিফ্রেশ ছাড়াই এডমিন প্রসেস করলে সাথে সাথে আপডেট হবে।</span>
               </div>
             </div>
 
@@ -245,7 +335,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 <span>রিকোয়েস্ট অ্যাডমিন প্যানেলে পাঠানো হয়েছে</span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
-                আপনার পেমেন্ট ট্রানজেকশন রিকোয়েস্ট সফলভাবে অ্যাডমিন প্যানেলে জমা হয়েছে। অ্যাডমিন তার সিকিউর প্যানেল থেকে পেমেন্ট তথ্য যাচাই করে এক্টিভ (Active) করে দিলেই সাথে সাথে Pro Future Bot আনলক হয়ে যাবে।
+                আপনার পেমেন্ট ট্রানজেকশন রিকোয়েস্ট সফলভাবে অ্যাডমিন প্যানেলে জমা হয়েছে। অ্যাডমিন তার সিকিউর প্যানেল থেকে পেমেন্ট তথ্য যাচাই করে প্রথমে Accept করবেন এবং এরপর ACTIVATE PRO করে দিলেই Pro Feature আনলক হবে।
               </p>
             </div>
 
@@ -541,7 +631,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                     ? 'bg-gradient-to-r from-[#763cff] to-[#c022ff] hover:brightness-110 text-white shadow-[0_8px_30px_rgba(180,30,255,0.45)] border-purple-400/40 active:scale-[0.98] cursor-pointer'
                     : 'bg-[#150e26] border-purple-950 text-slate-500 cursor-not-allowed opacity-60 shadow-none'
                 }`}
-                title={!isCodeValid ? 'Enter transaction code first' : `Pay Now ($${amount})`}
+                title={!isCodeValid ? 'Enter transaction code first' : `SUBMIT PAYMENT REQUEST (${amount})`}
               >
                 {isSubmitting ? (
                   <>
@@ -551,15 +641,15 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 ) : isCodeValid ? (
                   <>
                     <Clock className="w-5 h-5 text-amber-300 shrink-0" />
-                    <span>Pay Now (${amount}) — Submit to Pending List</span>
+                    <span>SUBMIT PAYMENT REQUEST (${amount})</span>
                   </>
                 ) : (
-                  '🔒 ট্রানজেকশন আইডি দিন (Enter TrxID to Unlock Pay Now)'
+                  '🔒 ট্রানজেকশন আইডি দিন (Enter TrxID to Submit Request)'
                 )}
               </button>
 
               <p className="text-center text-[11px] text-purple-300/80">
-                💡 সাবমিট করার পর রিকোয়েস্ট পেন্ডিং লিস্টে থাকবে এবং এডমিন অ্যাপ্রুভ করলে বট আনলক হবে।
+                💡 সাবমিট করার পর রিকোয়েস্ট PENDING অবস্থায় থাকবে। এডমিন রিভিউ করে Accept এবং ম্যানুয়ালি ACTIVATE PRO করার পর Pro Feature আনলক হবে।
               </p>
 
               <button

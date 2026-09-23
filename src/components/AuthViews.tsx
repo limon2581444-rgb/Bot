@@ -304,35 +304,20 @@ export const AuthViews: React.FC<AuthViewsProps> = ({
         {/* Footer Navigation Switch */}
         <div className="mt-6 pt-4 border-t border-slate-800/80 text-center text-xs text-slate-400 space-y-2">
           {page === 'login' && (
-            <>
-              <div>
-                Don't have an account?{' '}
-                <button
-                  id="switch-to-register-btn"
-                  onClick={() => {
-                    setEmail('');
-                    setPassword('');
-                    onNavigate('register');
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 font-semibold transition"
-                >
-                  Register
-                </button>
-              </div>
-              <div>
-                <button
-                  id="switch-to-admin-btn"
-                  onClick={() => {
-                    setEmail('');
-                    setPassword('');
-                    onNavigate('adminLogin');
-                  }}
-                  className="text-purple-400 hover:text-purple-300 font-medium transition"
-                >
-                  Switch to Admin Portal →
-                </button>
-              </div>
-            </>
+            <div>
+              Don't have an account?{' '}
+              <button
+                id="switch-to-register-btn"
+                onClick={() => {
+                  setEmail('');
+                  setPassword('');
+                  onNavigate('register');
+                }}
+                className="text-cyan-400 hover:text-cyan-300 font-semibold transition"
+              >
+                Register
+              </button>
+            </div>
           )}
 
           {page === 'register' && (

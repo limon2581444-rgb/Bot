@@ -27,6 +27,7 @@ import {
   subscribeToAuditLogs,
 } from './lib/firebaseDb';
 import { ShieldAlert } from 'lucide-react';
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_DEMO_PASS, ADMIN_NUMBER } from './data/constants';
 
 export default function App() {
   // Shared real-time users from Firebase Firestore
@@ -114,13 +115,16 @@ export default function App() {
           };
         });
 
-        const newStatus = updated.status;
-        if ((newStatus === 'active' || newStatus === 'approved') && page === 'pending') {
-          showToast('🎉 Your payment has been approved! Pro Future unlocked.');
+        const isNowProActive =
+          (updated.role === 'admin' || updated.proAccess === true) &&
+          (updated.status === 'active' || updated.status === 'approved');
+
+        if (isNowProActive && (page === 'pending' || page === 'paid')) {
+          showToast('🎉 Your payment has been activated by Admin! Pro Feature UNLOCKED.');
           setPage('pro');
-        } else if (newStatus === 'disabled' || newStatus === 'removed') {
+        } else if (updated.status === 'disabled' || updated.status === 'removed') {
           if (page === 'pro') {
-            showToast('⚠️ Pro Future license has been revoked.');
+            showToast('⚠️ Pro Feature license has been revoked.');
             setPage('denied');
           }
         }
@@ -136,12 +140,66 @@ export default function App() {
     }, 2500);
   };
 
-  // User Login Handler (Strictly standard user session)
+  // Unified Login Handler: If admin credentials are provided, log in as Admin directly
   const handleLogin = async (email: string, pass: string): Promise<boolean> => {
-    const res = await loginWithFirebase(email, pass);
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if this is an Admin login attempt via Admin Gmail / ID and password
+    const isAdminCredentials =
+      (cleanEmail === ADMIN_EMAIL.toLowerCase() ||
+        cleanEmail === 'limon2581444@gmail.com' ||
+        cleanEmail === 'admin' ||
+        cleanEmail === ADMIN_NUMBER.toLowerCase()) &&
+      (pass === ADMIN_PASSWORD ||
+        pass === '00000000' ||
+        pass === 'limonAbc123' ||
+        pass === ADMIN_DEMO_PASS);
+
+    if (isAdminCredentials) {
+      const adminRes = await adminLoginWithFirebase(cleanEmail, pass);
+      if (adminRes.success && adminRes.user) {
+        sessionStorage.setItem('tl_admin_verified', 'true');
+        setCurrentUser(adminRes.user);
+        setPage('admin');
+        showToast('Admin access granted! Welcome Admin.');
+        return true;
+      }
+    }
+
+    // Standard user login via Firebase
+    const res = await loginWithFirebase(cleanEmail, pass);
     if (!res.success || !res.user) {
+      // Fallback check: if direct auth failed but it matches admin credentials
+      const fallbackAdmin = await adminLoginWithFirebase(cleanEmail, pass);
+      if (fallbackAdmin.success && fallbackAdmin.user) {
+        sessionStorage.setItem('tl_admin_verified', 'true');
+        setCurrentUser(fallbackAdmin.user);
+        setPage('admin');
+        showToast('Admin access granted! Welcome Admin.');
+        return true;
+      }
+
       showToast(res.error || 'Invalid Gmail or password');
       return false;
+    }
+
+    // If user has admin role in Firestore or admin email
+    if (
+      res.user.role === 'admin' ||
+      cleanEmail === ADMIN_EMAIL.toLowerCase() ||
+      cleanEmail === 'limon2581444@gmail.com'
+    ) {
+      sessionStorage.setItem('tl_admin_verified', 'true');
+      const adminUser: User = {
+        ...res.user,
+        role: 'admin',
+        status: 'active',
+        proAccess: true,
+      };
+      setCurrentUser(adminUser);
+      setPage('admin');
+      showToast('Admin access granted! Welcome Admin.');
+      return true;
     }
 
     sessionStorage.removeItem('tl_admin_verified');
@@ -213,7 +271,7 @@ export default function App() {
     sessionStorage.removeItem('tl_admin_verified');
     await logoutFromFirebase();
     setCurrentUser(null);
-    setPage('adminLogin');
+    setPage('login');
     showToast('অ্যাডমিন প্যানেল থেকে সাইন আউট করা হয়েছে');
   };
 
@@ -261,16 +319,23 @@ export default function App() {
       return;
     }
 
-    if (currentUser.status === 'active' || currentUser.status === 'approved' || currentUser.proAccess) {
+    // STRICT PRO ACTIVE CHECK: Only admin or manually activated Pro users can access
+    const isProActive =
+      (currentUser.role === 'admin' || currentUser.proAccess === true) &&
+      (currentUser.status === 'active' || currentUser.status === 'approved');
+
+    if (isProActive) {
       setPage('pro');
       return;
     }
 
+    // If pending or accepted, Pro Feature is LOCKED - show pending status
     if (currentUser.status === 'pending' || currentUser.status === 'accepted') {
       setPage('pending');
       return;
     }
 
+    // Normal user: opens Payment Gateway
     setPage('paid');
   };
 

@@ -14,7 +14,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
   onSubmitPayment,
   showToast,
 }) => {
-  const [amount, setAmount] = useState<number>(15);
+  const [amount, setAmount] = useState<number>(30);
   const [selectedMethod, setSelectedMethod] = useState<'Binance' | 'bKash' | 'Nagad'>('Binance');
   const [transactionId, setTransactionId] = useState<string>('');
 
@@ -26,19 +26,23 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
   };
 
   const handlePayNow = () => {
-    if (amount < 15) {
-      showToast('Minimum down payment is $15');
+    if (!transactionId.trim()) {
+      showToast('অনুগ্রহ করে Transaction ID / TrxID প্রদান করুন!');
       return;
     }
-    if (amount > 30) {
-      showToast('Maximum payment is $30');
+    if (amount < 30) {
+      showToast('Minimum down payment is $30');
+      return;
+    }
+    if (amount > 50) {
+      showToast('Maximum payment is $50');
       return;
     }
 
     const newPayment: PaymentInfo = {
       amount: Number(amount),
       method: selectedMethod,
-      transactionId: transactionId.trim() || undefined,
+      transactionId: transactionId.trim(),
       date: new Date().toLocaleString(),
     };
 

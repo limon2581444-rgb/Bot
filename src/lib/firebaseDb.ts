@@ -106,32 +106,48 @@ export async function registerWithFirebase(
     const docSnap = await getDoc(userDocRef);
 
     let newUserData: User;
+    const isCleanEmailAdmin =
+      cleanEmail === ADMIN_EMAIL.toLowerCase() || cleanEmail === 'limon2581444@gmail.com';
+
     if (docSnap.exists()) {
       const data = docSnap.data();
+      const isAdminUser = isCleanEmailAdmin || data.role === 'admin';
+      const isProActive =
+        isAdminUser ||
+        (data.proAccess === true &&
+          (data.status === 'active' || data.status === 'approved') &&
+          data.status !== 'disabled' &&
+          data.status !== 'removed' &&
+          data.status !== 'accepted' &&
+          data.status !== 'pending' &&
+          data.status !== 'unpaid');
+
       newUserData = {
         id: uid,
         email: data.email || cleanEmail,
-        status: data.status || 'active',
-        role: 'user',
+        status: isAdminUser ? 'active' : (data.status || 'unpaid'),
+        role: isAdminUser ? 'admin' : (data.role || 'user'),
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
         createdAt: data.createdAt || new Date().toISOString(),
+        acceptedAt: data.acceptedAt,
+        acceptedDate: data.acceptedDate,
         activeAt: data.activeAt,
         activeDate: data.activeDate,
         disabledAt: data.disabledAt,
         disabledDate: data.disabledDate,
-        proAccess: data.proAccess ?? (data.status === 'active' || data.status === 'approved'),
+        proAccess: isProActive,
       };
     } else {
       newUserData = {
         id: uid,
         email: cleanEmail,
-        status: 'active',
-        role: 'user',
+        status: isCleanEmailAdmin ? 'active' : 'unpaid',
+        role: isCleanEmailAdmin ? 'admin' : 'user',
         created: new Date().toLocaleString(),
         createdAt: new Date().toISOString(),
         payment: null,
-        proAccess: false,
+        proAccess: isCleanEmailAdmin,
       };
       await setDoc(
         userDocRef,
@@ -188,14 +204,27 @@ export async function loginWithFirebase(
     const docSnap = await getDoc(userDocRef);
 
     let userData: User;
+    const isCleanEmailAdmin =
+      cleanEmail === ADMIN_EMAIL.toLowerCase() || cleanEmail === 'limon2581444@gmail.com';
+
     if (docSnap.exists()) {
       const data = docSnap.data();
-      const isActive = data.status === 'active' || data.status === 'approved';
+      const isAdminUser = isCleanEmailAdmin || data.role === 'admin';
+      const isProActive =
+        isAdminUser ||
+        (data.proAccess === true &&
+          (data.status === 'active' || data.status === 'approved') &&
+          data.status !== 'disabled' &&
+          data.status !== 'removed' &&
+          data.status !== 'accepted' &&
+          data.status !== 'pending' &&
+          data.status !== 'unpaid');
+
       userData = {
         id: uid,
         email: data.email || cleanEmail,
-        status: data.status || 'active',
-        role: 'user',
+        status: isAdminUser ? 'active' : (data.status || 'unpaid'),
+        role: isAdminUser ? 'admin' : (data.role || 'user'),
         payment: data.payment || null,
         created: data.created || new Date().toLocaleString(),
         createdAt: data.createdAt,
@@ -205,18 +234,18 @@ export async function loginWithFirebase(
         activeDate: data.activeDate,
         disabledAt: data.disabledAt,
         disabledDate: data.disabledDate,
-        proAccess: isActive ? (data.proAccess ?? true) : false,
+        proAccess: isProActive,
       };
     } else {
       userData = {
         id: uid,
         email: cleanEmail,
-        status: 'active',
-        role: 'user',
+        status: isCleanEmailAdmin ? 'active' : 'unpaid',
+        role: isCleanEmailAdmin ? 'admin' : 'user',
         created: new Date().toLocaleString(),
         createdAt: new Date().toISOString(),
         payment: null,
-        proAccess: false,
+        proAccess: isCleanEmailAdmin,
       };
       await setDoc(userDocRef, userData, { merge: true });
     }
@@ -836,11 +865,20 @@ export function subscribeToCurrentUser(
       (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          const isActive = data.status === 'active' || data.status === 'approved';
+          const isProActive =
+            data.role === 'admin' ||
+            (data.proAccess === true &&
+              (data.status === 'active' || data.status === 'approved') &&
+              data.status !== 'disabled' &&
+              data.status !== 'removed' &&
+              data.status !== 'accepted' &&
+              data.status !== 'pending' &&
+              data.status !== 'unpaid');
+
           onUpdate({
             id: docSnap.id,
             email: data.email,
-            status: data.status,
+            status: data.status || 'unpaid',
             role: data.role,
             payment: data.payment,
             created: data.created,
@@ -851,7 +889,7 @@ export function subscribeToCurrentUser(
             activeDate: data.activeDate,
             disabledAt: data.disabledAt,
             disabledDate: data.disabledDate,
-            proAccess: isActive ? (data.proAccess ?? true) : false,
+            proAccess: isProActive,
           });
         }
       },
@@ -872,11 +910,20 @@ export function subscribeToCurrentUser(
       (snap) => {
         if (!snap.empty) {
           const data = snap.docs[0].data();
-          const isActive = data.status === 'active' || data.status === 'approved';
+          const isProActive =
+            data.role === 'admin' ||
+            (data.proAccess === true &&
+              (data.status === 'active' || data.status === 'approved') &&
+              data.status !== 'disabled' &&
+              data.status !== 'removed' &&
+              data.status !== 'accepted' &&
+              data.status !== 'pending' &&
+              data.status !== 'unpaid');
+
           onUpdate({
             id: snap.docs[0].id,
             email: data.email || cleanEmail,
-            status: data.status,
+            status: data.status || 'unpaid',
             role: data.role,
             payment: data.payment,
             created: data.created,
@@ -887,7 +934,7 @@ export function subscribeToCurrentUser(
             activeDate: data.activeDate,
             disabledAt: data.disabledAt,
             disabledDate: data.disabledDate,
-            proAccess: isActive ? (data.proAccess ?? true) : false,
+            proAccess: isProActive,
           });
         }
       },
@@ -918,11 +965,20 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
         const cleanEmail = rawEmail.toLowerCase();
         if (!cleanEmail) return;
 
-        const isActive = data.status === 'active' || data.status === 'approved';
+        const isProActive =
+          data.role === 'admin' ||
+          (data.proAccess === true &&
+            (data.status === 'active' || data.status === 'approved') &&
+            data.status !== 'disabled' &&
+            data.status !== 'removed' &&
+            data.status !== 'accepted' &&
+            data.status !== 'pending' &&
+            data.status !== 'unpaid');
+
         const candidateUser: User = {
           id: docSnap.id,
           email: rawEmail,
-          status: data.status || 'active',
+          status: data.status || 'unpaid',
           role: data.role || 'user',
           payment: data.payment || null,
           created: data.created || '',
@@ -933,7 +989,7 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
           activeDate: data.activeDate || '',
           disabledAt: data.disabledAt || '',
           disabledDate: data.disabledDate || '',
-          proAccess: isActive ? (data.proAccess ?? true) : false,
+          proAccess: isProActive,
         };
 
         if (usersMap.has(cleanEmail)) {

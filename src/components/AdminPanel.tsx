@@ -105,9 +105,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           pending: 3,
           disabled: 2,
           removed: 1,
+          unpaid: 0,
         };
-        const curScore = (statusWeight[u.status] ?? 1) + (u.payment ? 5 : 0);
-        const prevScore = (statusWeight[prev.status] ?? 1) + (prev.payment ? 5 : 0);
+        const curScore = (statusWeight[u.status] ?? 0) + (u.payment ? 5 : 0);
+        const prevScore = (statusWeight[prev.status] ?? 0) + (prev.payment ? 5 : 0);
         if (curScore >= prevScore) {
           map.set(email, { ...u, email });
         }
@@ -153,7 +154,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const proActiveUsers = useMemo(() => {
     return enrichedUsers.filter(
-      (u) => (u.status === 'active' || u.status === 'approved') && u.status !== 'accepted'
+      (u) =>
+        (u.status === 'active' || u.status === 'approved') &&
+        u.status !== 'accepted' &&
+        u.status !== 'pending' &&
+        u.status !== 'disabled' &&
+        u.status !== 'removed' &&
+        u.status !== 'unpaid' &&
+        u.proAccess === true
     );
   }, [enrichedUsers]);
 
@@ -910,10 +918,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <thead>
                     <tr className="bg-[#1b1405] border-b border-amber-500/30 text-amber-300 uppercase text-[11px] font-bold tracking-wider">
                       <th className="py-3.5 px-4 w-12 text-center">#</th>
-                      <th className="py-3.5 px-4">Name</th>
+                      <th className="py-3.5 px-4">User Name</th>
                       <th className="py-3.5 px-4">Gmail</th>
+                      <th className="py-3.5 px-4">Payment Method</th>
                       <th className="py-3.5 px-4">Transaction ID</th>
-                      <th className="py-3.5 px-4">Method</th>
                       <th className="py-3.5 px-4">Amount</th>
                       <th className="py-3.5 px-4">Request Date</th>
                       <th className="py-3.5 px-4 text-center">Status</th>
@@ -935,7 +943,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {idx + 1}
                           </td>
 
-                          {/* 2. Name */}
+                          {/* 2. User Name */}
                           <td className="py-3.5 px-4 font-bold text-white">
                             {getUserDisplayName(user)}
                           </td>
@@ -945,7 +953,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                             {user.email}
                           </td>
 
-                          {/* 4. Transaction ID */}
+                          {/* 4. Payment Method */}
+                          <td className="py-3.5 px-4">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                              {user.payment?.method || 'Binance'}
+                            </span>
+                          </td>
+
+                          {/* 5. Transaction ID */}
                           <td className="py-3.5 px-4 font-mono font-bold text-amber-300">
                             <span className="flex items-center gap-1">
                               {user.payment?.transactionId || '—'}
@@ -962,13 +977,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                   )}
                                 </button>
                               )}
-                            </span>
-                          </td>
-
-                          {/* 5. Payment Method */}
-                          <td className="py-3.5 px-4">
-                            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                              {user.payment?.method || 'Binance'}
                             </span>
                           </td>
 
@@ -996,20 +1004,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <button
                                 onClick={() => handleAccept(user.email, getUserDisplayName(user))}
                                 disabled={actionLoadingEmail === user.email}
-                                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:brightness-110 text-white font-extrabold text-xs shadow-md transition cursor-pointer flex items-center gap-1"
-                                title="Accept Payment & Move to Ready to Activate"
+                                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-extrabold text-xs shadow-md transition cursor-pointer flex items-center gap-1.5"
+                                title="Accept payment request (Moves to Accepted / Waiting for Activation without unlocking)"
                               >
                                 <Check className="w-3.5 h-3.5" />
-                                Accept
+                                ACCEPT
                               </button>
                               <button
                                 onClick={() => handleDisableOrReject(user.email, getUserDisplayName(user))}
                                 disabled={actionLoadingEmail === user.email}
                                 className="px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500 text-rose-300 hover:text-white border border-rose-500/40 font-bold text-xs transition cursor-pointer flex items-center gap-1"
-                                title="Reject & Move to Disabled"
+                                title="Reject payment request"
                               >
                                 <X className="w-3.5 h-3.5" />
-                                Remove
+                                REMOVE / REJECT
                               </button>
                             </div>
                           </td>

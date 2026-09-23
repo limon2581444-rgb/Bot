@@ -1,4 +1,4 @@
-export type UserStatus = 'active' | 'pending' | 'accepted' | 'approved' | 'rejected' | 'removed' | 'disabled';
+export type UserStatus = 'unpaid' | 'active' | 'pending' | 'accepted' | 'approved' | 'rejected' | 'removed' | 'disabled';
 
 export interface PaymentInfo {
   amount: number;

@@ -55,13 +55,13 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
           </div>
 
           <h2 className="text-2xl font-bold text-white mb-2">
-            {isAccepted ? 'Payment Accepted / Waiting for Activation' : 'Request Submitted to Pending List!'}
+            {isAccepted ? 'Payment Accepted / Waiting for Activation' : 'Payment Request Pending'}
           </h2>
 
           <p className="text-sm text-slate-300 leading-relaxed max-w-md mx-auto">
             {isAccepted
-              ? 'আপনার পেমেন্ট এডমিন সফলভাবে যাচাই ও অ্যাকসেপ্ট করেছেন। তবে Pro Future ফিচার ও কোড এখনও লক রয়েছে। এডমিন ম্যানুয়ালি "ACTIVATE PRO" করার সাথে সাথেই বট সম্পূর্ণ আনলক হবে।'
-              : 'আপনার পেমেন্ট ট্রানজেকশন তথ্য এডমিন পেন্ডিং তালিকায় জমা হয়েছে। এডমিন ভেরিফাই করে অ্যাকসেপ্ট ও অ্যাক্টিভেট না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে এবং বট লক থাকবে।'}
+              ? 'আপনার পেমেন্ট এডমিন সফলভাবে যাচাই ও অ্যাকসেপ্ট করেছেন। তবে Pro Feature এখনও লক রয়েছে। এডমিন ম্যানুয়ালি "ACTIVATE PRO" করার সাথে সাথেই Pro Feature সম্পূর্ণ আনলক হবে।'
+              : 'আপনার পেমেন্ট ট্রানজেকশন তথ্য এডমিন পেন্ডিং তালিকায় জমা হয়েছে। এডমিন ভেরিফাই করে অ্যাকসেপ্ট ও অ্যাক্টিভেট না করা পর্যন্ত রিকোয়েস্ট পেন্ডিং অবস্থায় থাকবে এবং Pro Feature লক থাকবে।'}
           </p>
 
           <div
@@ -78,8 +78,8 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
             />
             <span>
               {isAccepted
-                ? '📋 ACCEPTED / READY TO ACTIVATE (এডমিন অ্যাক্টিভেশনের অপেক্ষায়)'
-                : '⏳ PENDING ADMIN APPROVAL (এডমিন অ্যাকসেপ্টের অপেক্ষায়)'}
+                ? '📋 ACCEPTED / WAITING FOR ACTIVATION (এডমিন অ্যাক্টিভেশনের অপেক্ষায়)'
+                : '⏳ PAYMENT REQUEST PENDING (এডমিন পেন্ডিং রিভিউ)'}
             </span>
           </div>
 
@@ -188,7 +188,53 @@ export const StatusViews: React.FC<StatusViewsProps> = ({
     );
   }
 
-  // PRO FUTURE UNLOCKED VIEW
+  // PRO FUTURE UNLOCKED VIEW (Strictly requires isProActive)
+  const isProActive =
+    (currentUser.role === 'admin' || currentUser.proAccess === true) &&
+    (currentUser.status === 'active' || currentUser.status === 'approved');
+
+  if (!isProActive) {
+    return (
+      <div id="pro-locked-view" className="w-full max-w-xl mx-auto px-4 py-12">
+        <div className="p-8 text-center rounded-2xl bg-[#090b1d] border border-amber-500/40 text-white shadow-xl">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto mb-4 text-amber-400">
+            <Lock className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-black mb-2">Pro Feature Locked</h2>
+          <p className="text-sm text-slate-300 leading-relaxed mb-6">
+            {currentUser.status === 'pending'
+              ? 'আপনার পেমেন্ট রিকোয়েস্ট এডমিন পেন্ডিং তালিকায় রয়েছে। এডমিন অ্যাপ্রুভ ও অ্যাক্টিভ না করা পর্যন্ত Pro Feature লক থাকবে।'
+              : currentUser.status === 'accepted'
+              ? 'আপনার পেমেন্ট এক্সেপ্ট করা হয়েছে। এডমিন ম্যানুয়ালি "ACTIVATE PRO" করার পর Pro Feature আনলক হবে।'
+              : 'Pro Feature আনলক করতে পেমেন্ট গেটওয়েতে রিকোয়েস্ট সাবমিট করুন।'}
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => onNavigate('dashboard')}
+              className="px-5 py-2.5 rounded-xl border border-white/10 hover:bg-white/5 text-slate-300 text-xs font-semibold transition cursor-pointer"
+            >
+              Back to Dashboard
+            </button>
+            <button
+              onClick={() =>
+                onNavigate(
+                  currentUser.status === 'pending' || currentUser.status === 'accepted'
+                    ? 'pending'
+                    : 'paid'
+                )
+              }
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-xs hover:brightness-110 transition cursor-pointer"
+            >
+              {currentUser.status === 'pending' || currentUser.status === 'accepted'
+                ? 'View Status'
+                : 'Open Payment Gateway'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div id="pro-view" className="w-full max-w-3xl mx-auto px-4 py-8 md:py-12">
       <div className="p-6 md:p-8 rounded-2xl bg-gradient-to-br from-[#0e0828] via-[#09051d] to-[#04020e] border border-[#a52cff] shadow-[0_0_50px_rgba(165,44,255,0.22)] relative overflow-hidden">
