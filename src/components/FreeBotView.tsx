@@ -58,37 +58,14 @@ export const FreeBotView: React.FC<FreeBotViewProps> = ({
           </div>
         </div>
 
-        {/* URL Box */}
-        <div className="relative mb-5 p-4 rounded-xl bg-[#020a17] border border-[#245179]">
-          <code
-            id="free-bot-code-display"
-            className="block text-xs font-mono text-[#75ddff] break-all pr-12 leading-relaxed selection:bg-cyan-500/30 select-all"
-          >
-            {FREE_BOT_URL}
-          </code>
-
-          <button
-            id="copy-free-bot-inline-btn"
-            onClick={handleCopy}
-            className="absolute right-3 top-3 w-9 h-9 rounded-lg bg-[#0b1d36] hover:bg-[#132c52] border border-[#245179] text-white flex items-center justify-center transition"
-            title="Copy script"
-          >
-            {copied ? (
-              <Check className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <Copy className="w-4 h-4 text-slate-300" />
-            )}
-          </button>
-        </div>
-
         {/* Info Box */}
-        <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs md:text-sm text-slate-300 leading-relaxed space-y-1">
+        <div className="p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-xs md:text-sm text-slate-300 leading-relaxed space-y-1 mb-5">
           <strong className="text-[#00e4ff] flex items-center gap-1.5">
             <Bookmark className="w-4 h-4" />
             Free Bot Access Activated
           </strong>
           <p>
-            No payment required. Copy the bookmarklet script above, create a new bookmark in your browser with any name (e.g. "Trade Lens Free"), and paste the code into the URL field.
+            No payment required. Copy the bookmarklet script using the button below, create a new bookmark in your browser with any name (e.g. &quot;Trade Lens Free&quot;), and paste the code into the URL field.
           </p>
         </div>
 
