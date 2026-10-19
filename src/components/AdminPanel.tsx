@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { User, Page, PaymentRequest, AdminAuditLog, AuditActionType } from '../types';
-import { calculateActiveDuration } from '../lib/firebaseDb';
+import { User, Page, PaymentRequest, AdminAuditLog, AuditActionType, AIProofAnalysis } from '../types';
+import { calculateActiveDuration, updateRequestAIAnalysis } from '../lib/firebaseDb';
 import {
   ShieldCheck,
   LogOut,
@@ -32,6 +32,12 @@ import {
   History,
   FileText,
   Shield,
+  Image as ImageIcon,
+  Eye,
+  Bot,
+  Brain,
+  CheckCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -69,9 +75,64 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [auditActionFilter, setAuditActionFilter] = useState<'ALL' | AuditActionType>('ALL');
   const [confirmingRemoveUser, setConfirmingRemoveUser] = useState<User | null>(null);
+  const [viewingPhotosUser, setViewingPhotosUser] = useState<User | null>(null);
+  const [viewingAiReportUser, setViewingAiReportUser] = useState<User | null>(null);
+  const [analyzingEmail, setAnalyzingEmail] = useState<string | null>(null);
+  const [aiAutoAcceptToggle, setAiAutoAcceptToggle] = useState<boolean>(true);
   const [actionLoadingEmail, setActionLoadingEmail] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [proActiveViewMode, setProActiveViewMode] = useState<'cards' | 'table'>('cards');
+
+  // Run on-demand Gemini vision analysis for a user's payment screenshots
+  const handleRunAiAnalysis = async (user: User) => {
+    if (!user.payment?.proofImages || user.payment.proofImages.length === 0) {
+      alert('এই রিকোয়েস্টে কোনো পেমেন্ট স্ক্রিনশট বা ছবি পাওয়া যায়নি।');
+      return;
+    }
+    setAnalyzingEmail(user.email);
+    try {
+      const res = await fetch('/api/analyze-payment-proof', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proofImages: user.payment.proofImages,
+          method: user.payment.method,
+          transactionId: user.payment.transactionId,
+          amount: user.payment.amount,
+          userEmail: user.email,
+        }),
+      });
+
+      if (res.ok) {
+        const aiData: AIProofAnalysis = await res.json();
+        await updateRequestAIAnalysis(user.email, aiData);
+
+        const updatedUserWithAi: User = {
+          ...user,
+          payment: {
+            ...user.payment,
+            aiAnalysis: aiData,
+          },
+        };
+
+        // If AI Auto Accept is ON and verification matched
+        if (aiAutoAcceptToggle && aiData.verified && aiData.trxIdMatched) {
+          if (onAcceptUser) {
+            await onAcceptUser(user.email, getUserDisplayName(user));
+          }
+        }
+
+        setViewingAiReportUser(updatedUserWithAi);
+      } else {
+        alert('এআই এনালাইসিস সম্পন্ন হতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
+      }
+    } catch (e: any) {
+      console.error('Error running AI analysis:', e);
+      alert('এআই সার্ভার কল করতে সমস্যা হয়েছে।');
+    } finally {
+      setAnalyzingEmail(null);
+    }
+  };
 
   // Helper to extract clean human-readable name
   const getUserDisplayName = (u: { name?: string; email: string }) => {
@@ -117,7 +178,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return Array.from(map.values());
   }, [users]);
 
-  // Merge paymentRequests collection data to ensure Transaction ID, amount, and date are always present
+  // Merge paymentRequests collection data to ensure Transaction ID, amount, date and AI analysis are always present
   const enrichedUsers = useMemo(() => {
     const reqMap = new Map<string, PaymentRequest>();
     for (const req of paymentRequests) {
@@ -130,14 +191,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const pr = reqMap.get(email);
       if (!pr) return u;
 
+      const proofImages =
+        u.payment?.proofImages && u.payment.proofImages.length > 0
+          ? u.payment.proofImages
+          : pr.proofImages || [];
+
+      const aiAnalysis = u.payment?.aiAnalysis || pr.aiAnalysis;
+
       return {
         ...u,
         name: u.name || pr.userName || getUserDisplayName(u),
-        payment: u.payment || {
-          amount: pr.amount,
-          method: pr.method,
-          transactionId: pr.transactionId,
-          date: pr.date,
+        payment: {
+          amount: u.payment?.amount ?? pr.amount,
+          method: u.payment?.method || pr.method,
+          transactionId: u.payment?.transactionId || pr.transactionId,
+          date: u.payment?.date || pr.date,
+          proofImages: proofImages,
+          aiAnalysis: aiAnalysis,
         },
       };
     });
@@ -667,13 +737,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         <div className="min-w-0">
                           <p className="text-xs font-bold text-white truncate">{getUserDisplayName(user)}</p>
                           <p className="text-[11px] text-slate-400 font-mono truncate">{user.email}</p>
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
                             <span className="text-[10px] text-amber-300 font-mono">
                               Trx: {user.payment?.transactionId || '—'}
                             </span>
                             <span className="text-[10px] text-cyan-300 font-bold">
                               ${user.payment?.amount || 30} USD
                             </span>
+                            {user.payment?.proofImages && user.payment.proofImages.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPhotosUser(user)}
+                                className="inline-flex items-center gap-1 text-[10px] text-cyan-300 hover:text-white font-bold px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 transition cursor-pointer"
+                                title="View uploaded screenshots"
+                              >
+                                <ImageIcon className="w-3 h-3 text-cyan-400" />
+                                {user.payment.proofImages.length} Pics
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -904,17 +985,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Pending Payment Requests
                 </h3>
                 <p className="text-xs text-amber-200/80 mt-0.5">
-                  Users who submitted payment proof awaiting manual approval. Accepting automatically promotes user to PRO ACTIVE.
+                  Users who submitted payment proof. AI auto-analyzes screenshots for instant verification & auto-acceptance.
                 </p>
               </div>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 self-start sm:self-auto">
-                {pendingCount} Pending
-              </span>
+              <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setAiAutoAcceptToggle((prev) => !prev)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer shadow-sm ${
+                    aiAutoAcceptToggle
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                  title="Toggle automatic acceptance when AI verification passes 100%"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>AI Auto-Accept: {aiAutoAcceptToggle ? 'ON' : 'OFF'}</span>
+                </button>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  {pendingCount} Pending
+                </span>
+              </div>
             </div>
 
             <div className="rounded-2xl border border-amber-500/30 bg-[#070919] overflow-hidden shadow-[0_0_35px_rgba(245,158,11,0.12)]">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[950px]">
+                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[1050px]">
                   <thead>
                     <tr className="bg-[#1b1405] border-b border-amber-500/30 text-amber-300 uppercase text-[11px] font-bold tracking-wider">
                       <th className="py-3.5 px-4 w-12 text-center">#</th>
@@ -925,13 +1021,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <th className="py-3.5 px-4">Amount</th>
                       <th className="py-3.5 px-4">Request Date</th>
                       <th className="py-3.5 px-4 text-center">Status</th>
+                      <th className="py-3.5 px-4 text-center">Proof Photos</th>
+                      <th className="py-3.5 px-4 text-center">AI Vision Analysis</th>
                       <th className="py-3.5 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-sans">
                     {processList(pendingUsers).length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-500">
+                        <td colSpan={11} className="py-12 text-center text-slate-500">
                           {searchTerm ? 'No pending requests match your search' : 'No pending payment requests right now'}
                         </td>
                       </tr>
@@ -996,6 +1094,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
                               PENDING
                             </span>
+                          </td>
+
+                          {/* 8.5. Proof Photos */}
+                          <td className="py-3.5 px-4 text-center">
+                            {user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPhotosUser(user)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-300 hover:text-white font-bold text-xs shadow-sm transition cursor-pointer"
+                                title="Click to view uploaded screenshots"
+                              >
+                                <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                                <span>{user.payment.proofImages.length} Photos</span>
+                                <Eye className="w-3 h-3 text-cyan-300" />
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
+                            )}
+                          </td>
+
+                          {/* 8.8. AI Vision Analysis Status */}
+                          <td className="py-3.5 px-4 text-center">
+                            {user.payment?.aiAnalysis ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingAiReportUser(user)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
+                                  user.payment.aiAnalysis.verified
+                                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                                    : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
+                                }`}
+                                title="Click to view full AI Verification Report"
+                              >
+                                <Bot className="w-3.5 h-3.5" />
+                                <span>{user.payment.aiAnalysis.verified ? 'AI Verified' : 'AI Flagged'}</span>
+                                <span className="text-[10px] opacity-80">({user.payment.aiAnalysis.confidence}%)</span>
+                              </button>
+                            ) : user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRunAiAnalysis(user)}
+                                disabled={analyzingEmail === user.email}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/35 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs transition cursor-pointer shadow-sm disabled:opacity-50"
+                                title="Run Gemini AI Vision analysis on proof screenshots"
+                              >
+                                <Bot className="w-3.5 h-3.5 text-purple-400" />
+                                <span>{analyzingEmail === user.email ? 'Analyzing...' : 'AI Verify'}</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
+                            )}
                           </td>
 
                           {/* 9. Actions: ACCEPT & REMOVE/REJECT */}
@@ -1089,13 +1238,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <th className="py-3.5 px-4">Accepted Date</th>
                       <th className="py-3.5 px-4 text-center">Status</th>
                       <th className="py-3.5 px-4 text-center">Pro Future</th>
+                      <th className="py-3.5 px-4 text-center">Proof Photos</th>
+                      <th className="py-3.5 px-4 text-center">AI Vision Analysis</th>
                       <th className="py-3.5 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-sans">
                     {processList(acceptedUsers).length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="py-12 text-center text-slate-400">
+                        <td colSpan={12} className="py-12 text-center text-slate-400">
                           <div className="space-y-2">
                             <UserCheck className="w-10 h-10 text-slate-600 mx-auto" />
                             <p className="text-sm font-semibold text-slate-300">
@@ -1184,6 +1335,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <Lock className="w-3 h-3" />
                               LOCKED
                             </span>
+                          </td>
+
+                          {/* 9.5. Proof Photos */}
+                          <td className="py-3.5 px-4 text-center">
+                            {user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingPhotosUser(user)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-300 hover:text-white font-bold text-xs shadow-sm transition cursor-pointer"
+                                title="Click to view uploaded screenshots"
+                              >
+                                <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                                <span>{user.payment.proofImages.length} Photos</span>
+                                <Eye className="w-3 h-3 text-cyan-300" />
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
+                            )}
+                          </td>
+
+                          {/* 9.8. AI Vision Analysis Status */}
+                          <td className="py-3.5 px-4 text-center">
+                            {user.payment?.aiAnalysis ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingAiReportUser(user)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
+                                  user.payment.aiAnalysis.verified
+                                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                                    : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
+                                }`}
+                                title="Click to view full AI Verification Report"
+                              >
+                                <Bot className="w-3.5 h-3.5" />
+                                <span>{user.payment.aiAnalysis.verified ? 'AI Verified' : 'AI Flagged'}</span>
+                                <span className="text-[10px] opacity-80">({user.payment.aiAnalysis.confidence}%)</span>
+                              </button>
+                            ) : user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRunAiAnalysis(user)}
+                                disabled={analyzingEmail === user.email}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/35 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs transition cursor-pointer shadow-sm disabled:opacity-50"
+                                title="Run Gemini AI Vision analysis on proof screenshots"
+                              >
+                                <Bot className="w-3.5 h-3.5 text-purple-400" />
+                                <span>{analyzingEmail === user.email ? 'Analyzing...' : 'AI Verify'}</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
+                            )}
                           </td>
 
                           {/* 10. Actions: ACTIVATE PRO & REMOVE/REJECT */}
@@ -2041,6 +2243,352 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   <UserX className="w-4 h-4" />
                   Yes, Remove User
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ========================================================================= */}
+        {/* VIEW PAYMENT PROOF PHOTOS MODAL (FOR ADMIN) */}
+        {/* ========================================================================= */}
+        {viewingPhotosUser && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setViewingPhotosUser(null)}
+          >
+            <div
+              className="relative max-w-3xl w-full p-6 rounded-2xl bg-[#090b1d] border border-cyan-500/40 shadow-[0_0_60px_rgba(6,182,212,0.3)] text-left space-y-4 max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-white/10 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-300">
+                    <ImageIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-white flex items-center gap-2">
+                      Payment Proof Screenshots ({viewingPhotosUser.payment?.proofImages?.length || 0} Photos)
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase">
+                        {viewingPhotosUser.status}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      User: <strong className="text-white">{getUserDisplayName(viewingPhotosUser)}</strong> ({viewingPhotosUser.email})
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setViewingPhotosUser(null)}
+                  className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Payment Details summary bar */}
+              <div className="p-3 rounded-xl bg-[#061226] border border-cyan-500/20 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+                <div>
+                  <span className="text-slate-400">Method: </span>
+                  <strong className="text-purple-300 font-semibold">{viewingPhotosUser.payment?.method || 'Binance'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Amount: </span>
+                  <strong className="text-cyan-300 font-bold">${viewingPhotosUser.payment?.amount || 30} USD</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Transaction ID: </span>
+                  <strong className="text-amber-300 font-mono">{viewingPhotosUser.payment?.transactionId || '—'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400">Date: </span>
+                  <span className="text-slate-300 font-mono">{viewingPhotosUser.payment?.date || 'Recent'}</span>
+                </div>
+              </div>
+
+              {/* Photos Grid */}
+              <div className="overflow-y-auto space-y-4 flex-1 pr-1">
+                {!viewingPhotosUser.payment?.proofImages || viewingPhotosUser.payment.proofImages.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    No payment screenshots were uploaded with this request.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {viewingPhotosUser.payment.proofImages.map((img, idx) => (
+                      <div key={idx} className="space-y-2 p-3 rounded-xl bg-black/40 border border-white/10">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-bold text-cyan-300 flex items-center gap-1.5">
+                            <span>📸</span> ছবি {idx + 1}: {idx === 0 ? 'পেমেন্ট স্লিপ' : 'ট্রানজেকশন প্রুফ'}
+                          </span>
+                          <a
+                            href={img}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-slate-400 hover:text-cyan-300 flex items-center gap-1 font-semibold transition"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Open / Zoom
+                          </a>
+                        </div>
+                        <div className="relative rounded-lg overflow-hidden bg-black/70 border border-white/10 flex items-center justify-center max-h-[50vh]">
+                          <img
+                            src={img}
+                            alt={`Payment Screenshot ${idx + 1}`}
+                            className="max-h-[48vh] w-auto max-w-full object-contain rounded"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between pt-2 border-t border-white/10 shrink-0">
+                <span className="text-[11px] text-slate-400">
+                  Tip: Click &quot;Open / Zoom&quot; on any image to inspect details in full resolution.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setViewingPhotosUser(null)}
+                  className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MODAL 3: AI PAYMENT PROOF ANALYSIS REPORT MODAL */}
+        {/* ========================================================================= */}
+        {viewingAiReportUser && (
+          <div
+            id="ai-report-modal-overlay"
+            className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5"
+            onClick={() => setViewingAiReportUser(null)}
+          >
+            <div
+              id="ai-report-modal"
+              className="w-full max-w-2xl bg-[#080d21] border-2 border-purple-500/60 rounded-2xl shadow-[0_0_50px_rgba(168,85,247,0.25)] p-5 md:p-6 space-y-4 max-h-[92vh] flex flex-col relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/50 flex items-center justify-center text-purple-300">
+                    <Bot className="w-6 h-6 text-purple-300" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-base flex items-center gap-2">
+                      Gemini Vision AI Analysis Report
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
+                        Multimodal OCR
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      User: <strong className="text-white font-mono">{viewingAiReportUser.email}</strong> • {getUserDisplayName(viewingAiReportUser)}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingAiReportUser(null)}
+                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Main Content Area */}
+              <div className="overflow-y-auto space-y-4 flex-1 pr-1 text-xs">
+                {/* Verdict Banner */}
+                {viewingAiReportUser.payment?.aiAnalysis ? (
+                  <div
+                    className={`p-4 rounded-xl border flex items-start gap-3 ${
+                      viewingAiReportUser.payment.aiAnalysis.verified
+                        ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-200'
+                        : 'bg-rose-950/40 border-rose-500/60 text-rose-200'
+                    }`}
+                  >
+                    {viewingAiReportUser.payment.aiAnalysis.verified ? (
+                      <CheckCheck className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-sm uppercase tracking-wider">
+                          {viewingAiReportUser.payment.aiAnalysis.verified
+                            ? '✅ Verified Payment Proof'
+                            : '⚠️ Verification Mismatch / Review Needed'}
+                        </span>
+                        <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-black/40 border border-white/10">
+                          Confidence: {viewingAiReportUser.payment.aiAnalysis.confidence}%
+                        </span>
+                      </div>
+                      <p className="text-xs opacity-95 leading-relaxed font-sans">
+                        {viewingAiReportUser.payment.aiAnalysis.summary}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 text-center space-y-2">
+                    <p className="text-slate-300">এই পেমেন্টের এআই এনালাইসিস এখনও চালানো হয়নি।</p>
+                    <button
+                      type="button"
+                      onClick={() => handleRunAiAnalysis(viewingAiReportUser)}
+                      disabled={analyzingEmail === viewingAiReportUser.email}
+                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs inline-flex items-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Bot className="w-4 h-4" />
+                      <span>{analyzingEmail === viewingAiReportUser.email ? 'বিশ্লেষণ চলছে...' : 'AI দিয়ে যাচাই করুন'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Match Comparison Grid */}
+                {viewingAiReportUser.payment?.aiAnalysis && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {/* TrxID */}
+                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-[11px] font-semibold">TrxID Check:</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            viewingAiReportUser.payment.aiAnalysis.trxIdMatched
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                          }`}
+                        >
+                          {viewingAiReportUser.payment.aiAnalysis.trxIdMatched ? 'Matched ✓' : 'Mismatch ✗'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Claimed: <span className="text-white font-mono">{viewingAiReportUser.payment?.transactionId || 'N/A'}</span></p>
+                      <p className="text-[11px] text-slate-400">Found: <span className="text-amber-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedTrxId || 'Not found'}</span></p>
+                    </div>
+
+                    {/* Recipient */}
+                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-[11px] font-semibold">Recipient Number:</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            viewingAiReportUser.payment.aiAnalysis.recipientMatched
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          }`}
+                        >
+                          {viewingAiReportUser.payment.aiAnalysis.recipientMatched ? 'Matched ✓' : 'Unconfirmed'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Expected: <span className="text-white font-mono">01568760651</span></p>
+                      <p className="text-[11px] text-slate-400">Found: <span className="text-cyan-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedRecipient || 'N/A'}</span></p>
+                    </div>
+
+                    {/* Channel & Amount */}
+                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 text-[11px] font-semibold">Channel & Amount:</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                          {viewingAiReportUser.payment.aiAnalysis.detectedMethod || viewingAiReportUser.payment?.method}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">Claimed: <span className="text-white font-mono">${viewingAiReportUser.payment?.amount} USD</span></p>
+                      <p className="text-[11px] text-slate-400">Detected: <span className="text-emerald-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedAmount || 'Amount visible'}</span></p>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Reasoning List */}
+                {viewingAiReportUser.payment?.aiAnalysis?.reasons && viewingAiReportUser.payment.aiAnalysis.reasons.length > 0 && (
+                  <div className="p-3.5 rounded-xl bg-[#060b1a] border border-white/10 space-y-2">
+                    <span className="text-slate-300 font-bold block text-xs flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      এআই চেকলিস্ট ও বিশ্লেষণ পয়েন্ট:
+                    </span>
+                    <ul className="space-y-1 pl-4 list-disc text-slate-300 text-[11px] leading-relaxed">
+                      {viewingAiReportUser.payment.aiAnalysis.reasons.map((r, i) => (
+                        <li key={i}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Attached Screenshot Thumbnails */}
+                {viewingAiReportUser.payment?.proofImages && viewingAiReportUser.payment.proofImages.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-slate-300 font-semibold text-xs block">
+                      বিশ্লেষিত পেমেন্ট স্ক্রিনশট ({viewingAiReportUser.payment.proofImages.length}টি ছবি):
+                    </span>
+                    <div className="grid grid-cols-2 gap-3">
+                      {viewingAiReportUser.payment.proofImages.map((img, i) => (
+                        <div key={i} className="rounded-xl overflow-hidden border border-white/10 bg-black/60 relative group">
+                          <img src={img} alt={`Proof ${i + 1}`} className="w-full h-36 object-contain" />
+                          <a
+                            href={img}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="absolute bottom-2 right-2 px-2 py-1 rounded bg-black/80 text-[10px] text-cyan-300 hover:text-white flex items-center gap-1 font-semibold"
+                          >
+                            <ExternalLink className="w-3 h-3" /> Zoom
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-between pt-3 border-t border-purple-500/30 shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRunAiAnalysis(viewingAiReportUser)}
+                  disabled={analyzingEmail === viewingAiReportUser.email}
+                  className="px-3.5 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900 border border-purple-500/40 text-purple-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>{analyzingEmail === viewingAiReportUser.email ? 'বিশ্লেষণ চলছে...' : 'পুনরায় এআই চালান'}</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  {viewingAiReportUser.status === 'pending' && onAcceptUser && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onAcceptUser(viewingAiReportUser.email, getUserDisplayName(viewingAiReportUser));
+                        setViewingAiReportUser(null);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Accept Payment
+                    </button>
+                  )}
+                  {viewingAiReportUser.status === 'accepted' && onActivateProUser && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onActivateProUser(viewingAiReportUser.email, getUserDisplayName(viewingAiReportUser));
+                        setViewingAiReportUser(null);
+                      }}
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
+                    >
+                      <Crown className="w-3.5 h-3.5 text-amber-900" />
+                      Activate Pro Future
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setViewingAiReportUser(null)}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>

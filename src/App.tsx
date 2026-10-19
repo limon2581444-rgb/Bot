@@ -287,6 +287,37 @@ export default function App() {
       const userId = currentUser.id || currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
       await submitPaymentToFirebase(userId, currentUser.email, payment);
 
+      // AI Automated Verification & Acceptance Check
+      const isAiVerified = Boolean(
+        payment.aiAnalysis?.verified === true && payment.aiAnalysis?.trxIdMatched === true
+      );
+
+      if (isAiVerified) {
+        // Automatically accept payment request in Firestore (moves from pending to accepted)
+        await acceptPaymentInFirebase(
+          currentUser.email,
+          'AI Auto-Verification Engine',
+          currentUser.name
+        );
+
+        const updatedUser: User = {
+          ...currentUser,
+          status: 'accepted',
+          proAccess: false,
+          payment,
+          acceptedDate: new Date().toLocaleString(),
+        };
+
+        setCurrentUser(updatedUser);
+        try {
+          localStorage.setItem('tl_current_session', JSON.stringify(updatedUser));
+        } catch {}
+
+        setPage('paid');
+        showToast('✨ AI ভেরিফিকেশন সফল! আপনার পেমেন্ট প্রুফ ও TrxID সঠিক পাওয়ায় এক্সেপ্ট করা হয়েছে। এডমিন অ্যাক্টিভেশনের অপেক্ষায়।');
+        return;
+      }
+
       const updatedUser: User = {
         ...currentUser,
         status: 'pending',
@@ -300,7 +331,7 @@ export default function App() {
       } catch {}
 
       setPage('pending');
-      showToast('🎉 আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা হয়েছে! এডমিন অ্যাপ্রুভালের অপেক্ষায়।');
+      showToast('🎉 আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা হয়েছে! এডমিন পর্যালোচনার অপেক্ষায়।');
     } catch (err: any) {
       console.error('Failed to submit payment:', err);
       showToast('পেমেন্ট রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');

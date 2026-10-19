@@ -1,10 +1,27 @@
 export type UserStatus = 'unpaid' | 'active' | 'pending' | 'accepted' | 'approved' | 'rejected' | 'removed' | 'disabled';
 
+export interface AIProofAnalysis {
+  verified: boolean;
+  confidence: number;
+  detectedMethod?: string;
+  extractedTrxId?: string;
+  trxIdMatched?: boolean;
+  extractedAmount?: string;
+  amountMatched?: boolean;
+  extractedRecipient?: string;
+  recipientMatched?: boolean;
+  summary: string;
+  reasons: string[];
+  analyzedAt: string;
+}
+
 export interface PaymentInfo {
   amount: number;
   method: 'Binance' | 'bKash' | 'Nagad' | string;
   transactionId?: string;
   date: string;
+  proofImages?: string[];
+  aiAnalysis?: AIProofAnalysis;
 }
 
 export interface PaymentRequest {
@@ -17,6 +34,8 @@ export interface PaymentRequest {
   transactionId?: string;
   status: 'pending' | 'accepted' | 'approved' | 'rejected' | 'disabled';
   date: string;
+  proofImages?: string[];
+  aiAnalysis?: AIProofAnalysis;
   createdAt?: string;
   reviewedAt?: string;
   reviewedBy?: string;

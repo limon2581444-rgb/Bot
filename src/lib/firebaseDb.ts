@@ -18,7 +18,7 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { User, PaymentInfo, PaymentRequest, AdminAuditLog, AuditActionType } from '../types';
+import { User, PaymentInfo, PaymentRequest, AdminAuditLog, AuditActionType, AIProofAnalysis } from '../types';
 import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
@@ -384,6 +384,7 @@ export async function submitPaymentToFirebase(
 ): Promise<void> {
   const cleanEmail = userEmail.trim().toLowerCase();
   const nowIso = new Date().toISOString();
+  const proofImages = Array.isArray(payment.proofImages) ? payment.proofImages : [];
 
   // 1. Update User document with pending status and payment info
   if (userId) {
@@ -400,6 +401,8 @@ export async function submitPaymentToFirebase(
           method: payment.method,
           transactionId: payment.transactionId || '',
           date: payment.date,
+          proofImages: proofImages,
+          ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
         },
         serverUpdated: serverTimestamp(),
       },
@@ -420,6 +423,8 @@ export async function submitPaymentToFirebase(
           method: payment.method,
           transactionId: payment.transactionId || '',
           date: payment.date,
+          proofImages: proofImages,
+          ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
         },
         serverUpdated: serverTimestamp(),
       });
@@ -438,11 +443,52 @@ export async function submitPaymentToFirebase(
       transactionId: payment.transactionId || '',
       status: 'pending',
       date: payment.date,
+      proofImages: proofImages,
+      ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
       createdAt: nowIso,
       serverUpdated: serverTimestamp(),
     },
     { merge: true }
   );
+}
+
+/**
+ * Update AI Analysis results for a payment request
+ */
+export async function updateRequestAIAnalysis(
+  userEmail: string,
+  aiAnalysis: AIProofAnalysis
+): Promise<void> {
+  const cleanEmail = userEmail.trim().toLowerCase();
+  const cleanId = emailToDocId(cleanEmail);
+
+  try {
+    // Update payment request doc
+    const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
+    await setDoc(
+      reqDocRef,
+      {
+        aiAnalysis,
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Update user doc
+    const userDocRef = doc(db, USERS_COLLECTION, cleanId);
+    await setDoc(
+      userDocRef,
+      {
+        payment: {
+          aiAnalysis,
+        },
+        serverUpdated: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (e) {
+    console.error('Error updating AI analysis in Firestore:', e);
+  }
 }
 
 /**
@@ -1046,6 +1092,7 @@ export function subscribeToPaymentRequests(
           transactionId: data.transactionId || '',
           status: data.status || 'pending',
           date: data.date || '',
+          proofImages: Array.isArray(data.proofImages) ? data.proofImages : [],
           createdAt: data.createdAt || '',
           reviewedAt: data.reviewedAt,
           reviewedBy: data.reviewedBy,

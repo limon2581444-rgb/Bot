@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Page, User, PaymentInfo } from '../types';
-import { PAID_BOT_URL, TELEGRAM_URL, TELEGRAM_USERNAME } from '../data/constants';
+import { PAID_BOT_URL, TELEGRAM_URL, TELEGRAM_USERNAME, BKASH_NUMBER } from '../data/constants';
 import {
   Crown,
   Copy,
@@ -18,7 +18,56 @@ import {
   Clock,
   RefreshCw,
   MessageSquare,
+  Image as ImageIcon,
+  Upload,
+  Trash2,
+  Eye,
+  Camera,
+  X,
+  Phone,
 } from 'lucide-react';
+
+// Lightweight in-browser image compression using HTML5 canvas
+const compressImageFile = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 800;
+
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(e.target?.result as string);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        // Compressed JPEG under 70KB
+        const compressed = canvas.toDataURL('image/jpeg', 0.78);
+        resolve(compressed);
+      };
+      img.onerror = () => resolve(e.target?.result as string);
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+};
 
 interface PaidBotViewProps {
   currentUser: User | null;
@@ -34,10 +83,18 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   showToast,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [copiedBkash, setCopiedBkash] = useState(false);
   const [amount, setAmount] = useState<number>(30);
   const [selectedMethod, setSelectedMethod] = useState<'Binance' | 'bKash' | 'Nagad'>('Binance');
   const [transactionCode, setTransactionCode] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 2 Proof Screenshots States
+  const [proofImage1, setProofImage1] = useState<string | null>(null);
+  const [proofImage2, setProofImage2] = useState<string | null>(null);
+  const [previewingImage, setPreviewingImage] = useState<string | null>(null);
+  const fileInput1Ref = useRef<HTMLInputElement>(null);
+  const fileInput2Ref = useRef<HTMLInputElement>(null);
 
   const isProActive =
     (currentUser?.role === 'admin' || currentUser?.proAccess === true) &&
@@ -50,6 +107,50 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
     setSelectedMethod(methodName);
     showToast(`Opening Telegram (@${TELEGRAM_USERNAME}) for ${methodName} payment details...`);
     window.open(TELEGRAM_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleSelectBkash = () => {
+    setSelectedMethod('bKash');
+    navigator.clipboard?.writeText(BKASH_NUMBER).catch(() => {});
+    setCopiedBkash(true);
+    showToast(`bKash Personal নম্বর: ${BKASH_NUMBER} (কপি করা হয়েছে)`);
+    setTimeout(() => setCopiedBkash(false), 2500);
+  };
+
+  const handleFileChange = async (index: 1 | 2, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('অনুগ্রহ করে ছবি (Image/Screenshot) ফাইল নির্বাচন করুন!');
+      return;
+    }
+
+    try {
+      const compressed = await compressImageFile(file);
+      if (index === 1) {
+        setProofImage1(compressed);
+      } else {
+        setProofImage2(compressed);
+      }
+      showToast(`ছবি ${index} সফলভাবে যোগ করা হয়েছে!`);
+    } catch (err) {
+      console.error('Image compression error', err);
+      showToast('ছবি প্রসেস করতে সমস্যা হয়েছে, অন্য ছবি দিন');
+    } finally {
+      // Clear value so the user can re-select the same file if needed
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveImage = (index: 1 | 2, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (index === 1) {
+      setProofImage1(null);
+    } else {
+      setProofImage2(null);
+    }
+    showToast(`ছবি ${index} রিমুভ করা হয়েছে`);
   };
 
   const handleCopy = () => {
@@ -92,11 +193,40 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
     setIsSubmitting(true);
     try {
+      const uploadedImages = [proofImage1, proofImage2].filter(Boolean) as string[];
+
+      let aiAnalysisResult = undefined;
+
+      // Automatically run AI Payment Proof Analysis if screenshots are uploaded
+      if (uploadedImages.length > 0) {
+        showToast('🤖 AI দিয়ে পেমেন্ট প্রুফ ও TrxID বিশ্লেষণ করা হচ্ছে...');
+        try {
+          const res = await fetch('/api/analyze-payment-proof', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              proofImages: uploadedImages,
+              method: selectedMethod,
+              transactionId: transactionCode.trim(),
+              amount: Number(amount),
+              userEmail: currentUser.email,
+            }),
+          });
+          if (res.ok) {
+            aiAnalysisResult = await res.json();
+          }
+        } catch (aiErr) {
+          console.warn('AI analysis error on submit:', aiErr);
+        }
+      }
+
       const newPayment: PaymentInfo = {
         amount: Number(amount),
         method: selectedMethod,
         transactionId: transactionCode.trim(),
         date: new Date().toLocaleString(),
+        proofImages: uploadedImages,
+        aiAnalysis: aiAnalysisResult,
       };
 
       await onSubmitPayment(newPayment);
@@ -232,9 +362,37 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   </div>
                 )}
                 {currentUser?.acceptedDate && (
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
                     <span className="text-slate-400">Accepted Date:</span>
                     <span className="text-slate-300 font-mono text-xs">{currentUser.acceptedDate}</span>
+                  </div>
+                )}
+                {currentUser?.payment?.proofImages && currentUser.payment.proofImages.length > 0 && (
+                  <div className="pt-2 border-t border-white/5 space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 flex items-center gap-1 text-[11px]">
+                        <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                        Uploaded Proof Screenshots:
+                      </span>
+                      <span className="text-cyan-300 font-bold text-[11px]">
+                        {currentUser.payment.proofImages.length} Photos Attached
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      {currentUser.payment.proofImages.map((img, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => setPreviewingImage(img)}
+                          className="relative group cursor-pointer overflow-hidden rounded-lg border border-cyan-500/40 w-16 h-16 bg-black shrink-0 hover:border-cyan-300 transition"
+                          title="Click to view full photo"
+                        >
+                          <img src={img} alt={`Proof ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                          <span className="absolute bottom-0 inset-x-0 bg-black/80 text-[9px] text-cyan-300 text-center py-0.5">
+                            ছবি {idx + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -317,6 +475,34 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                     ⏳ In Admin Pending Queue
                   </span>
                 </div>
+                {currentUser?.payment?.proofImages && currentUser.payment.proofImages.length > 0 && (
+                  <div className="pt-2 border-t border-white/5 space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-400 flex items-center gap-1 text-[11px]">
+                        <ImageIcon className="w-3.5 h-3.5 text-amber-400" />
+                        Uploaded Proof Screenshots:
+                      </span>
+                      <span className="text-amber-300 font-bold text-[11px]">
+                        {currentUser.payment.proofImages.length} Photos Attached
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      {currentUser.payment.proofImages.map((img, idx) => (
+                        <div
+                          key={idx}
+                          onClick={() => setPreviewingImage(img)}
+                          className="relative group cursor-pointer overflow-hidden rounded-lg border border-amber-500/40 w-16 h-16 bg-black shrink-0 hover:border-amber-300 transition"
+                          title="Click to view full photo"
+                        >
+                          <img src={img} alt={`Proof ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                          <span className="absolute bottom-0 inset-x-0 bg-black/80 text-[9px] text-amber-300 text-center py-0.5">
+                            ছবি {idx + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-500/20 flex items-center gap-2.5 text-[11px] text-cyan-200">
@@ -474,13 +660,13 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 <button
                   type="button"
                   id="paid-method-bkash-btn"
-                  onClick={() => openTelegram('bKash')}
+                  onClick={handleSelectBkash}
                   className={`h-12 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                     selectedMethod === 'bKash'
-                      ? 'border-pink-400 bg-[#2d0922] text-white shadow-[0_0_15px_rgba(255,0,150,0.25)]'
+                      ? 'border-pink-400 bg-[#2d0922] text-white shadow-[0_0_15px_rgba(255,0,150,0.35)] ring-2 ring-pink-500/30'
                       : 'border-[#1b3d63] bg-[#071832] text-slate-300 hover:bg-[#0c2447]'
                   }`}
-                  title="bKash Send Money"
+                  title="bKash Send Money: 01568760651"
                 >
                   <span>🟣</span> bKash
                 </button>
@@ -500,8 +686,41 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 </button>
               </div>
 
-              <p className="text-[11px] text-purple-300/80 mt-1.5 flex items-center gap-1">
-                <span>💡</span> Clicking a payment method directly opens Telegram <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong>
+              {/* Prominent bKash Number Box shown when bKash is selected */}
+              {selectedMethod === 'bKash' && (
+                <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-[#2c0823] to-[#170518] border-2 border-pink-500 shadow-[0_0_20px_rgba(236,72,153,0.3)] space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                    <div>
+                      <span className="text-[11px] font-bold text-pink-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-pink-400 animate-ping" />
+                        bKash Personal / Send Money নম্বর
+                      </span>
+                      <div className="text-2xl sm:text-3xl font-mono font-black text-white tracking-widest mt-0.5 select-all">
+                        {BKASH_NUMBER}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(BKASH_NUMBER);
+                        setCopiedBkash(true);
+                        showToast(`bKash নম্বর ${BKASH_NUMBER} কপি হয়েছে!`);
+                        setTimeout(() => setCopiedBkash(false), 2000);
+                      }}
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-500 active:scale-95 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                    >
+                      {copiedBkash ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                      <span>{copiedBkash ? 'কপি হয়েছে ✓' : 'Copy Number'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-pink-200/90 leading-relaxed border-t border-pink-500/30 pt-2">
+                    💡 উপরের বিকাশ নম্বরে <strong className="text-white">Send Money</strong> করুন। এরপর নিচে আপনার TrxID লিখুন এবং স্ক্রিনশট আপলোড করে সাবমিট করুন।
+                  </p>
+                </div>
+              )}
+
+              <p className="text-[11px] text-purple-300/80 mt-2 flex items-center gap-1 flex-wrap">
+                <span>💡</span> বিকাশ বাটনে ট্যাপ করলে বিকাশ নম্বর আসবে। Binance ও Nagad-এ ট্যাপ করলে Telegram <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong> ওপেন হবে।
               </p>
             </div>
 
@@ -534,17 +753,28 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               )}
 
               {selectedMethod === 'bKash' && (
-                <div className="space-y-1.5 text-slate-300 text-xs py-1">
-                  <p className="flex items-center gap-1.5">
-                    <span>bKash Personal / Send Money Number:</span>
-                    <a
-                      href={TELEGRAM_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
+                <div className="space-y-2 py-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-pink-950/40 border border-pink-500/40">
+                    <div>
+                      <span className="text-[11px] text-pink-300 block font-medium">bKash Personal / Send Money Number:</span>
+                      <strong className="text-xl font-mono text-white tracking-wider">{BKASH_NUMBER}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(BKASH_NUMBER);
+                        setCopiedBkash(true);
+                        showToast(`bKash নম্বর ${BKASH_NUMBER} কপি হয়েছে!`);
+                        setTimeout(() => setCopiedBkash(false), 2000);
+                      }}
+                      className="px-3.5 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
                     >
-                      Get number on Telegram (@{TELEGRAM_USERNAME})
-                    </a>
+                      {copiedBkash ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copiedBkash ? 'Copied' : 'Copy Number'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Send Money সম্পন্ন করার পর ট্রানজেকশন কোড (TrxID) ও পেমেন্ট স্ক্রিনশট নিচে দিন।
                   </p>
                 </div>
               )}
@@ -580,6 +810,183 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                   Chat on Telegram
                   <ExternalLink className="w-3 h-3" />
                 </a>
+              </div>
+            </div>
+
+            {/* 2-Picture Upload Section (Proof Screenshots) */}
+            <div className="mb-5 p-4 rounded-xl bg-[#120a28] border border-purple-500/40 shadow-inner space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-purple-200 flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                  Upload Payment Proof / Screenshots (২টি ছবি আপলোড করুন)
+                </label>
+                <span className="text-[11px] font-semibold text-cyan-300 bg-cyan-950/60 border border-cyan-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                  <span>📸</span>
+                  {[proofImage1, proofImage2].filter(Boolean).length} / 2 Added
+                </span>
+              </div>
+
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                পেমেন্ট সম্পন্ন করার পর <strong className="text-purple-300">২টি ছবি</strong> (পেমেন্ট স্লিপ এবং ট্রানজেকশন প্রুফ) আপলোড করুন। সাবমিট করার পর রিকোয়েস্টটি অ্যাডমিন প্যানেলে ছবিসহ চলে যাবে।
+              </p>
+
+              {/* Hidden file inputs */}
+              <input
+                ref={fileInput1Ref}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFileChange(1, e)}
+              />
+              <input
+                ref={fileInput2Ref}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handleFileChange(2, e)}
+              />
+
+              {/* 2 Picture Upload Slots Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Slot 1: Picture 1 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-purple-200 flex items-center gap-1">
+                      <span>📸</span> ছবি ১: পেমেন্ট স্লিপ
+                    </span>
+                    {proofImage1 && (
+                      <span className="text-emerald-400 font-bold flex items-center gap-0.5 text-[10px]">
+                        <Check className="w-3 h-3" /> আপলোড হয়েছে
+                      </span>
+                    )}
+                  </div>
+
+                  {proofImage1 ? (
+                    <div className="relative group rounded-xl overflow-hidden border-2 border-emerald-500/50 bg-black/60 h-28 flex items-center justify-center shadow-md">
+                      <img
+                        src={proofImage1}
+                        alt="Screenshot 1"
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300 cursor-pointer"
+                        onClick={() => setPreviewingImage(proofImage1)}
+                      />
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewingImage(proofImage1)}
+                          className="p-1.5 rounded-lg bg-cyan-500/80 hover:bg-cyan-500 text-white shadow transition cursor-pointer"
+                          title="View Full Size"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fileInput1Ref.current?.click()}
+                          className="p-1.5 rounded-lg bg-purple-600/80 hover:bg-purple-600 text-white shadow transition cursor-pointer"
+                          title="Change Photo"
+                        >
+                          <Camera className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoveImage(1, e)}
+                          className="p-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white shadow transition cursor-pointer"
+                          title="Remove Photo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-bold text-emerald-300 border border-emerald-500/40 pointer-events-none">
+                        ছবি ১
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInput1Ref.current?.click()}
+                      className="w-full h-28 rounded-xl border-2 border-dashed border-purple-500/40 hover:border-cyan-400/80 bg-[#0a0518] hover:bg-[#0e0724] text-slate-400 hover:text-white flex flex-col items-center justify-center gap-1.5 transition cursor-pointer group shadow-inner"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-purple-500/10 group-hover:bg-cyan-500/20 text-purple-400 group-hover:text-cyan-300 flex items-center justify-center transition">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-purple-200 group-hover:text-cyan-300">
+                        ছবি ১ সিলেক্ট করুন
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        (Screenshot 1 / Payment Slip)
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Slot 2: Picture 2 */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-purple-200 flex items-center gap-1">
+                      <span>📸</span> ছবি ২: ট্রানজেকশন প্রুফ
+                    </span>
+                    {proofImage2 && (
+                      <span className="text-emerald-400 font-bold flex items-center gap-0.5 text-[10px]">
+                        <Check className="w-3 h-3" /> আপলোড হয়েছে
+                      </span>
+                    )}
+                  </div>
+
+                  {proofImage2 ? (
+                    <div className="relative group rounded-xl overflow-hidden border-2 border-emerald-500/50 bg-black/60 h-28 flex items-center justify-center shadow-md">
+                      <img
+                        src={proofImage2}
+                        alt="Screenshot 2"
+                        className="w-full h-full object-cover group-hover:scale-105 transition duration-300 cursor-pointer"
+                        onClick={() => setPreviewingImage(proofImage2)}
+                      />
+                      <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewingImage(proofImage2)}
+                          className="p-1.5 rounded-lg bg-cyan-500/80 hover:bg-cyan-500 text-white shadow transition cursor-pointer"
+                          title="View Full Size"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => fileInput2Ref.current?.click()}
+                          className="p-1.5 rounded-lg bg-purple-600/80 hover:bg-purple-600 text-white shadow transition cursor-pointer"
+                          title="Change Photo"
+                        >
+                          <Camera className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleRemoveImage(2, e)}
+                          className="p-1.5 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white shadow transition cursor-pointer"
+                          title="Remove Photo"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-bold text-emerald-300 border border-emerald-500/40 pointer-events-none">
+                        ছবি ২
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileInput2Ref.current?.click()}
+                      className="w-full h-28 rounded-xl border-2 border-dashed border-purple-500/40 hover:border-cyan-400/80 bg-[#0a0518] hover:bg-[#0e0724] text-slate-400 hover:text-white flex flex-col items-center justify-center gap-1.5 transition cursor-pointer group shadow-inner"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-purple-500/10 group-hover:bg-cyan-500/20 text-purple-400 group-hover:text-cyan-300 flex items-center justify-center transition">
+                        <Upload className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-bold text-purple-200 group-hover:text-cyan-300">
+                        ছবি ২ সিলেক্ট করুন
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        (Screenshot 2 / Trx Confirmation)
+                      </span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -641,7 +1048,14 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 ) : isCodeValid ? (
                   <>
                     <Clock className="w-5 h-5 text-amber-300 shrink-0" />
-                    <span>SUBMIT PAYMENT REQUEST (${amount})</span>
+                    <span>
+                      SUBMIT PAYMENT REQUEST (${amount})
+                      {[proofImage1, proofImage2].filter(Boolean).length > 0 && (
+                        <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-emerald-400 text-black font-extrabold">
+                          +{[proofImage1, proofImage2].filter(Boolean).length} Pics
+                        </span>
+                      )}
+                    </span>
                   </>
                 ) : (
                   '🔒 ট্রানজেকশন আইডি দিন (Enter TrxID to Submit Request)'
@@ -660,6 +1074,53 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 <ArrowLeft className="w-3.5 h-3.5" />
                 Back to Dashboard
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* PREVIEW PROOF IMAGE MODAL (LIGHTBOX) */}
+        {/* ========================================================================= */}
+        {previewingImage && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => setPreviewingImage(null)}
+          >
+            <div
+              className="relative max-w-xl w-full p-4 rounded-2xl bg-[#0c061e] border border-purple-500/50 shadow-[0_0_50px_rgba(165,44,255,0.4)] text-center space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-white/10">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <ImageIcon className="w-4 h-4 text-cyan-400" />
+                  Uploaded Screenshot Preview
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreviewingImage(null)}
+                  className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="max-h-[70vh] overflow-auto rounded-xl bg-black/60 p-1 flex items-center justify-center">
+                <img
+                  src={previewingImage}
+                  alt="Full Proof Preview"
+                  className="max-h-[65vh] w-auto max-w-full object-contain rounded-lg shadow-lg"
+                />
+              </div>
+
+              <div className="flex justify-end pt-1">
+                <button
+                  type="button"
+                  onClick={() => setPreviewingImage(null)}
+                  className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Close Preview
+                </button>
+              </div>
             </div>
           </div>
         )}
