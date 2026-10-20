@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { User, Page, PaymentRequest, AdminAuditLog, AuditActionType, AIProofAnalysis } from '../types';
-import { calculateActiveDuration, updateRequestAIAnalysis } from '../lib/firebaseDb';
+import { User, Page, PaymentRequest, AdminAuditLog, AuditActionType } from '../types';
+import { calculateActiveDuration } from '../lib/firebaseDb';
+import { INITIAL_USERS } from '../data/constants';
 import {
   ShieldCheck,
   LogOut,
@@ -34,10 +35,6 @@ import {
   Shield,
   Image as ImageIcon,
   Eye,
-  Bot,
-  Brain,
-  CheckCheck,
-  AlertTriangle,
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -76,63 +73,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [auditActionFilter, setAuditActionFilter] = useState<'ALL' | AuditActionType>('ALL');
   const [confirmingRemoveUser, setConfirmingRemoveUser] = useState<User | null>(null);
   const [viewingPhotosUser, setViewingPhotosUser] = useState<User | null>(null);
-  const [viewingAiReportUser, setViewingAiReportUser] = useState<User | null>(null);
-  const [analyzingEmail, setAnalyzingEmail] = useState<string | null>(null);
-  const [aiAutoAcceptToggle, setAiAutoAcceptToggle] = useState<boolean>(true);
   const [actionLoadingEmail, setActionLoadingEmail] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [proActiveViewMode, setProActiveViewMode] = useState<'cards' | 'table'>('cards');
-
-  // Run on-demand Gemini vision analysis for a user's payment screenshots
-  const handleRunAiAnalysis = async (user: User) => {
-    if (!user.payment?.proofImages || user.payment.proofImages.length === 0) {
-      alert('এই রিকোয়েস্টে কোনো পেমেন্ট স্ক্রিনশট বা ছবি পাওয়া যায়নি।');
-      return;
-    }
-    setAnalyzingEmail(user.email);
-    try {
-      const res = await fetch('/api/analyze-payment-proof', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proofImages: user.payment.proofImages,
-          method: user.payment.method,
-          transactionId: user.payment.transactionId,
-          amount: user.payment.amount,
-          userEmail: user.email,
-        }),
-      });
-
-      if (res.ok) {
-        const aiData: AIProofAnalysis = await res.json();
-        await updateRequestAIAnalysis(user.email, aiData);
-
-        const updatedUserWithAi: User = {
-          ...user,
-          payment: {
-            ...user.payment,
-            aiAnalysis: aiData,
-          },
-        };
-
-        // If AI Auto Accept is ON and verification matched
-        if (aiAutoAcceptToggle && aiData.verified && aiData.trxIdMatched) {
-          if (onAcceptUser) {
-            await onAcceptUser(user.email, getUserDisplayName(user));
-          }
-        }
-
-        setViewingAiReportUser(updatedUserWithAi);
-      } else {
-        alert('এআই এনালাইসিস সম্পন্ন হতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।');
-      }
-    } catch (e: any) {
-      console.error('Error running AI analysis:', e);
-      alert('এআই সার্ভার কল করতে সমস্যা হয়েছে।');
-    } finally {
-      setAnalyzingEmail(null);
-    }
-  };
 
   // Helper to extract clean human-readable name
   const getUserDisplayName = (u: { name?: string; email: string }) => {
@@ -148,17 +91,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setTimeout(() => setCopiedId(null), 1800);
   };
 
-  // Deduplicate and sanitize user list from Firestore (by lowercase clean email)
-  const sanitizedUsers = useMemo(() => {
-    const map = new Map<string, User>();
+  // Unified user and request list merging INITIAL_USERS, Firestore users, and all paymentRequests
+  const enrichedUsers = useMemo(() => {
+    const userMap = new Map<string, User>();
+
+    // 1. Seed baseline initial users so requests and users are never blank or missing
+    for (const iu of INITIAL_USERS) {
+      const email = (iu.email || '').trim().toLowerCase();
+      if (email && email !== 'limon2581444@gmail.com') {
+        userMap.set(email, { ...iu, email: iu.email });
+      }
+    }
+
+    // 2. Merge all Firestore user documents
     for (const u of users) {
       const email = (u.email || '').trim().toLowerCase();
       if (!email || email.includes('admin@tradelens') || email === 'limon2581444@gmail.com') continue;
 
-      if (!map.has(email)) {
-        map.set(email, { ...u, email });
+      const existing = userMap.get(email);
+      if (!existing) {
+        userMap.set(email, { ...u, email });
       } else {
-        const prev = map.get(email)!;
         const statusWeight: Record<string, number> = {
           active: 5,
           approved: 5,
@@ -169,49 +122,87 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           unpaid: 0,
         };
         const curScore = (statusWeight[u.status] ?? 0) + (u.payment ? 5 : 0);
-        const prevScore = (statusWeight[prev.status] ?? 0) + (prev.payment ? 5 : 0);
-        if (curScore >= prevScore) {
-          map.set(email, { ...u, email });
-        }
+        const prevScore = (statusWeight[existing.status] ?? 0) + (existing.payment ? 5 : 0);
+        userMap.set(email, {
+          ...existing,
+          ...u,
+          status: curScore >= prevScore ? u.status : existing.status,
+          proAccess: u.proAccess ?? existing.proAccess,
+          payment: u.payment || existing.payment,
+        });
       }
     }
-    return Array.from(map.values());
-  }, [users]);
 
-  // Merge paymentRequests collection data to ensure Transaction ID, amount, date and AI analysis are always present
-  const enrichedUsers = useMemo(() => {
-    const reqMap = new Map<string, PaymentRequest>();
+    // 3. Merge every single payment request from paymentRequests collection
+    // This ensures any submitted request is NEVER dropped or lost!
     for (const req of paymentRequests) {
       const email = (req.userEmail || '').trim().toLowerCase();
-      if (email) reqMap.set(email, req);
+      if (!email || email.includes('admin@tradelens') || email === 'limon2581444@gmail.com') continue;
+
+      const existing = userMap.get(email);
+      const proofImages =
+        existing?.payment?.proofImages && existing.payment.proofImages.length > 0
+          ? existing.payment.proofImages
+          : req.proofImages || [];
+
+      // Determine the accurate status based on the payment request lifecycle
+      let finalStatus: User['status'] = existing?.status || 'pending';
+      let proAccess = existing?.proAccess ?? false;
+
+      if (req.status === 'pending') {
+        if (existing?.status !== 'active' && existing?.status !== 'approved' && existing?.status !== 'accepted') {
+          finalStatus = 'pending';
+          proAccess = false;
+        }
+      } else if (req.status === 'accepted') {
+        finalStatus = 'accepted';
+        proAccess = false;
+      } else if (req.status === 'approved') {
+        finalStatus = 'active';
+        proAccess = true;
+      } else if (req.status === 'disabled') {
+        finalStatus = 'disabled';
+        proAccess = false;
+      }
+
+      if (existing) {
+        userMap.set(email, {
+          ...existing,
+          status: finalStatus,
+          proAccess,
+          name: existing.name || req.userName || getUserDisplayName(existing),
+          payment: {
+            amount: req.amount || existing.payment?.amount || 30,
+            method: req.method || existing.payment?.method || 'Binance',
+            transactionId: req.transactionId || existing.payment?.transactionId || '',
+            date: req.date || existing.payment?.date || '',
+            proofImages: proofImages,
+          },
+        });
+      } else {
+        // Create user from payment request so it is fully accessible to Admin
+        userMap.set(email, {
+          id: req.userId || req.id || email.replace(/[^a-z0-9]/g, '_'),
+          email: req.userEmail,
+          name: req.userName || getUserDisplayName({ email: req.userEmail }),
+          status: finalStatus,
+          role: 'user',
+          proAccess,
+          payment: {
+            amount: req.amount || 30,
+            method: req.method || 'Binance',
+            transactionId: req.transactionId || '',
+            date: req.date || '',
+            proofImages: proofImages,
+          },
+          created: req.date || new Date().toLocaleString(),
+          createdAt: req.createdAt || new Date().toISOString(),
+        });
+      }
     }
 
-    return sanitizedUsers.map((u) => {
-      const email = u.email.trim().toLowerCase();
-      const pr = reqMap.get(email);
-      if (!pr) return u;
-
-      const proofImages =
-        u.payment?.proofImages && u.payment.proofImages.length > 0
-          ? u.payment.proofImages
-          : pr.proofImages || [];
-
-      const aiAnalysis = u.payment?.aiAnalysis || pr.aiAnalysis;
-
-      return {
-        ...u,
-        name: u.name || pr.userName || getUserDisplayName(u),
-        payment: {
-          amount: u.payment?.amount ?? pr.amount,
-          method: u.payment?.method || pr.method,
-          transactionId: u.payment?.transactionId || pr.transactionId,
-          date: u.payment?.date || pr.date,
-          proofImages: proofImages,
-          aiAnalysis: aiAnalysis,
-        },
-      };
-    });
-  }, [sanitizedUsers, paymentRequests]);
+    return Array.from(userMap.values());
+  }, [users, paymentRequests]);
 
   // Categorize user segments
   const pendingUsers = useMemo(() => {
@@ -389,82 +380,100 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         {/* TOP SUMMARY CARDS (Clickable for instant navigation) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 md:gap-4.5 items-stretch">
           {/* 1. Total Users */}
           <button
             onClick={() => setActiveTab('all')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between ${
               activeTab === 'all'
-                ? 'bg-[#12092a] border-purple-500 shadow-[0_0_25px_rgba(168,85,247,0.25)]'
-                : 'bg-[#090b1a] border-white/10 hover:border-purple-500/40'
+                ? 'bg-gradient-to-br from-[#180d38] to-[#0c051f] border-purple-400 shadow-[0_0_25px_rgba(168,85,247,0.3)]'
+                : 'bg-[#090b1a] border-white/10 hover:border-purple-500/50 hover:bg-[#0e1026]'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Users</span>
-              <Users className="w-4 h-4 text-purple-400" />
+              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Total Users</span>
+              <div className="w-7 h-7 rounded-lg bg-purple-500/20 border border-purple-500/40 flex items-center justify-center">
+                <Users className="w-3.5 h-3.5 text-purple-300" />
+              </div>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-white">{totalUsersCount}</p>
-              <p className="text-[11px] text-slate-400 mt-1">All registered accounts</p>
+              <p className="text-3xl sm:text-4xl font-black text-white tracking-tight drop-shadow-[0_2px_10px_rgba(255,255,255,0.15)] leading-tight">
+                {totalUsersCount}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1 font-medium">All registered accounts</p>
             </div>
           </button>
 
           {/* 2. Pending Requests */}
           <button
             onClick={() => setActiveTab('pending')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between relative overflow-hidden ${
               activeTab === 'pending'
-                ? 'bg-[#1d1405] border-amber-500 shadow-[0_0_25px_rgba(245,158,11,0.25)]'
-                : 'bg-[#090b1a] border-white/10 hover:border-amber-500/40'
+                ? 'bg-gradient-to-br from-[#281b05] to-[#140d02] border-amber-400 shadow-[0_0_30px_rgba(245,158,11,0.35)]'
+                : 'bg-[#0a0d1c] border-amber-500/30 hover:border-amber-400/60 hover:bg-[#121324]'
             }`}
           >
             {pendingCount > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+              <span className="absolute top-2.5 right-2.5 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500" />
+              </span>
             )}
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Pending Requests</span>
-              <Clock className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-extrabold text-amber-400 uppercase tracking-wider">Pending Requests</span>
+              <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+              </div>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-amber-300">{pendingCount}</p>
-              <p className="text-[11px] text-amber-200/70 mt-1">Awaiting verification</p>
+              <p className="text-3xl sm:text-4xl font-black text-amber-300 tracking-tight drop-shadow-[0_2px_15px_rgba(245,158,11,0.35)] leading-tight">
+                {pendingCount}
+              </p>
+              <p className="text-[11px] text-amber-200/80 mt-1 font-medium">
+                {pendingCount > 0 ? '⚠️ Awaiting clearance' : 'No pending queue'}
+              </p>
             </div>
           </button>
 
-          {/* 3. ACCEPTED / READY TO ACTIVATE (New 2-Step Stage) */}
+          {/* 3. ACCEPTED / READY TO ACTIVATE */}
           <button
             onClick={() => setActiveTab('accepted')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between relative overflow-hidden ${
               activeTab === 'accepted'
-                ? 'bg-[#06182c] border-cyan-400 shadow-[0_0_30px_rgba(6,182,212,0.35)]'
-                : 'bg-[#061220] border-cyan-500/30 hover:border-cyan-400/60'
+                ? 'bg-gradient-to-br from-[#08223d] to-[#04111f] border-cyan-400 shadow-[0_0_30px_rgba(6,182,212,0.35)]'
+                : 'bg-[#061220] border-cyan-500/30 hover:border-cyan-400/60 hover:bg-[#091a2e]'
             }`}
           >
             {acceptedCount > 0 && (
-              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+              <span className="absolute top-2.5 right-2.5 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500" />
+              </span>
             )}
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-extrabold text-cyan-300 uppercase tracking-wider flex items-center gap-1.5">
                 <UserCheck className="w-3.5 h-3.5 text-cyan-400" />
                 Accepted / Ready
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/40">
-                PENDING ACTIVATE
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-cyan-400/20 text-cyan-300 border border-cyan-400/40">
+                STAGE 2
               </span>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-cyan-300">{acceptedCount}</p>
-              <p className="text-[11px] text-cyan-200/70 mt-1">Waiting manual activation</p>
+              <p className="text-3xl sm:text-4xl font-black text-cyan-300 tracking-tight drop-shadow-[0_2px_12px_rgba(6,182,212,0.3)] leading-tight">
+                {acceptedCount}
+              </p>
+              <p className="text-[11px] text-cyan-200/80 mt-1 font-medium">Waiting manual activate</p>
             </div>
           </button>
 
-          {/* 4. PRO ACTIVE USERS (Highlighted) */}
+          {/* 4. PRO ACTIVE USERS */}
           <button
             onClick={() => setActiveTab('proActive')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between relative overflow-hidden ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between relative overflow-hidden ${
               activeTab === 'proActive'
-                ? 'bg-[#061d15] border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.35)]'
-                : 'bg-[#061410] border-emerald-500/30 hover:border-emerald-400/60'
+                ? 'bg-gradient-to-br from-[#08281d] to-[#03140e] border-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.35)]'
+                : 'bg-[#061410] border-emerald-500/30 hover:border-emerald-400/60 hover:bg-[#091e17]'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
@@ -472,52 +481,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 <Crown className="w-3.5 h-3.5 text-amber-300" />
                 PRO ACTIVE
               </span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              </div>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-emerald-300">{proActiveCount}</p>
-              <p className="text-[11px] text-emerald-200/70 mt-1">Pro Future unlocked</p>
+              <p className="text-3xl sm:text-4xl font-black text-emerald-300 tracking-tight drop-shadow-[0_2px_12px_rgba(16,185,129,0.3)] leading-tight">
+                {proActiveCount}
+              </p>
+              <p className="text-[11px] text-emerald-200/80 mt-1 font-medium">Pro Future unlocked</p>
             </div>
           </button>
 
           {/* 5. Disabled Users */}
           <button
             onClick={() => setActiveTab('disabled')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between ${
               activeTab === 'disabled'
-                ? 'bg-[#1e0811] border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.25)]'
-                : 'bg-[#090b1a] border-white/10 hover:border-rose-500/40'
+                ? 'bg-gradient-to-br from-[#280c18] to-[#14050b] border-rose-400 shadow-[0_0_25px_rgba(244,63,94,0.3)]'
+                : 'bg-[#090b1a] border-white/10 hover:border-rose-500/40 hover:bg-[#150e18]'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-rose-400 uppercase tracking-wider">Disabled Users</span>
-              <UserX className="w-4 h-4 text-rose-400" />
+              <div className="w-7 h-7 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center">
+                <UserX className="w-3.5 h-3.5 text-rose-400" />
+              </div>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-rose-300">{disabledCount}</p>
-              <p className="text-[11px] text-rose-200/70 mt-1">Access restricted</p>
+              <p className="text-3xl sm:text-4xl font-black text-rose-300 tracking-tight drop-shadow-[0_2px_12px_rgba(244,63,94,0.25)] leading-tight">
+                {disabledCount}
+              </p>
+              <p className="text-[11px] text-rose-200/70 mt-1 font-medium">Access restricted</p>
             </div>
           </button>
 
           {/* 6. Admin Audit Log Events */}
           <button
             onClick={() => setActiveTab('auditLogs')}
-            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between ${
+            className={`p-4 md:p-5 rounded-2xl border text-left transition cursor-pointer min-h-[128px] sm:min-h-[135px] flex flex-col justify-between ${
               activeTab === 'auditLogs'
-                ? 'bg-[#041c2c] border-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.3)]'
-                : 'bg-[#090b1a] border-white/10 hover:border-cyan-500/40'
+                ? 'bg-gradient-to-br from-[#062438] to-[#02101a] border-cyan-400 shadow-[0_0_25px_rgba(6,182,212,0.3)]'
+                : 'bg-[#090b1a] border-white/10 hover:border-cyan-500/40 hover:bg-[#0c1322]'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider">Audit Logs</span>
-              <ShieldAlert className="w-4 h-4 text-cyan-400" />
+              <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center">
+                <ShieldAlert className="w-3.5 h-3.5 text-cyan-400" />
+              </div>
             </div>
             <div>
-              <p className="text-2xl md:text-3xl font-black text-cyan-300">{(auditLogs || []).length}</p>
-              <p className="text-[11px] text-cyan-200/70 mt-1">Recorded events</p>
+              <p className="text-3xl sm:text-4xl font-black text-cyan-300 tracking-tight drop-shadow-[0_2px_12px_rgba(6,182,212,0.25)] leading-tight">
+                {(auditLogs || []).length}
+              </p>
+              <p className="text-[11px] text-cyan-200/70 mt-1 font-medium">Recorded events</p>
             </div>
           </button>
         </div>
+
 
         {/* NAVIGATION SECTIONS (7 TABS) + SEARCH & SORT */}
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 pt-2">
@@ -728,8 +750,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     No pending payment requests right now
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
-                    {pendingUsers.slice(0, 3).map((user) => (
+                  <div className="max-h-[420px] overflow-y-auto space-y-2.5 pr-1">
+                    {pendingUsers.slice(0, 20).map((user) => (
                       <div
                         key={user.id || user.email}
                         className="p-3 rounded-xl bg-[#0e122b] border border-white/5 flex items-center justify-between gap-3 hover:border-amber-500/30 transition"
@@ -802,8 +824,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     No accepted users waiting for activation
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
-                    {acceptedUsers.slice(0, 3).map((user) => (
+                  <div className="max-h-[420px] overflow-y-auto space-y-2.5 pr-1">
+                    {acceptedUsers.slice(0, 20).map((user) => (
                       <div
                         key={user.id || user.email}
                         className="p-3 rounded-xl bg-[#041a2e] border border-cyan-500/20 flex items-center justify-between gap-3 hover:border-cyan-500/50 transition"
@@ -870,8 +892,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     No active Pro Future members yet
                   </div>
                 ) : (
-                  <div className="space-y-2.5">
-                    {proActiveUsers.slice(0, 3).map((user) => (
+                  <div className="max-h-[420px] overflow-y-auto space-y-2.5 pr-1">
+                    {proActiveUsers.slice(0, 20).map((user) => (
                       <div
                         key={user.id || user.email}
                         className="p-3 rounded-xl bg-[#071912] border border-emerald-500/20 flex items-center justify-between gap-3 hover:border-emerald-500/50 transition"
@@ -985,32 +1007,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   Pending Payment Requests
                 </h3>
                 <p className="text-xs text-amber-200/80 mt-0.5">
-                  Users who submitted payment proof. AI auto-analyzes screenshots for instant verification & auto-acceptance.
+                  Users who submitted payment proof awaiting manual approval. Accepting automatically promotes user to PRO ACTIVE.
                 </p>
               </div>
-              <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-                <button
-                  type="button"
-                  onClick={() => setAiAutoAcceptToggle((prev) => !prev)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition cursor-pointer shadow-sm ${
-                    aiAutoAcceptToggle
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
-                      : 'bg-slate-800 text-slate-400 border-slate-700'
-                  }`}
-                  title="Toggle automatic acceptance when AI verification passes 100%"
-                >
-                  <Bot className="w-3.5 h-3.5" />
-                  <span>AI Auto-Accept: {aiAutoAcceptToggle ? 'ON' : 'OFF'}</span>
-                </button>
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                  {pendingCount} Pending
-                </span>
-              </div>
+              <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 self-start sm:self-auto">
+                {pendingCount} Pending
+              </span>
             </div>
 
             <div className="rounded-2xl border border-amber-500/30 bg-[#070919] overflow-hidden shadow-[0_0_35px_rgba(245,158,11,0.12)]">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[1050px]">
+                <table className="w-full text-left text-xs md:text-sm border-collapse min-w-[950px]">
                   <thead>
                     <tr className="bg-[#1b1405] border-b border-amber-500/30 text-amber-300 uppercase text-[11px] font-bold tracking-wider">
                       <th className="py-3.5 px-4 w-12 text-center">#</th>
@@ -1022,14 +1029,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <th className="py-3.5 px-4">Request Date</th>
                       <th className="py-3.5 px-4 text-center">Status</th>
                       <th className="py-3.5 px-4 text-center">Proof Photos</th>
-                      <th className="py-3.5 px-4 text-center">AI Vision Analysis</th>
                       <th className="py-3.5 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-sans">
                     {processList(pendingUsers).length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-500">
+                        <td colSpan={10} className="py-12 text-center text-slate-500">
                           {searchTerm ? 'No pending requests match your search' : 'No pending payment requests right now'}
                         </td>
                       </tr>
@@ -1108,39 +1114,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
                                 <span>{user.payment.proofImages.length} Photos</span>
                                 <Eye className="w-3 h-3 text-cyan-300" />
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
-                            )}
-                          </td>
-
-                          {/* 8.8. AI Vision Analysis Status */}
-                          <td className="py-3.5 px-4 text-center">
-                            {user.payment?.aiAnalysis ? (
-                              <button
-                                type="button"
-                                onClick={() => setViewingAiReportUser(user)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
-                                  user.payment.aiAnalysis.verified
-                                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
-                                    : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
-                                }`}
-                                title="Click to view full AI Verification Report"
-                              >
-                                <Bot className="w-3.5 h-3.5" />
-                                <span>{user.payment.aiAnalysis.verified ? 'AI Verified' : 'AI Flagged'}</span>
-                                <span className="text-[10px] opacity-80">({user.payment.aiAnalysis.confidence}%)</span>
-                              </button>
-                            ) : user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => handleRunAiAnalysis(user)}
-                                disabled={analyzingEmail === user.email}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/35 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs transition cursor-pointer shadow-sm disabled:opacity-50"
-                                title="Run Gemini AI Vision analysis on proof screenshots"
-                              >
-                                <Bot className="w-3.5 h-3.5 text-purple-400" />
-                                <span>{analyzingEmail === user.email ? 'Analyzing...' : 'AI Verify'}</span>
                               </button>
                             ) : (
                               <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
@@ -1239,14 +1212,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       <th className="py-3.5 px-4 text-center">Status</th>
                       <th className="py-3.5 px-4 text-center">Pro Future</th>
                       <th className="py-3.5 px-4 text-center">Proof Photos</th>
-                      <th className="py-3.5 px-4 text-center">AI Vision Analysis</th>
                       <th className="py-3.5 px-4 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5 font-sans">
                     {processList(acceptedUsers).length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="py-12 text-center text-slate-400">
+                        <td colSpan={11} className="py-12 text-center text-slate-400">
                           <div className="space-y-2">
                             <UserCheck className="w-10 h-10 text-slate-600 mx-auto" />
                             <p className="text-sm font-semibold text-slate-300">
@@ -1349,39 +1321,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
                                 <span>{user.payment.proofImages.length} Photos</span>
                                 <Eye className="w-3 h-3 text-cyan-300" />
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
-                            )}
-                          </td>
-
-                          {/* 9.8. AI Vision Analysis Status */}
-                          <td className="py-3.5 px-4 text-center">
-                            {user.payment?.aiAnalysis ? (
-                              <button
-                                type="button"
-                                onClick={() => setViewingAiReportUser(user)}
-                                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-xs transition cursor-pointer border ${
-                                  user.payment.aiAnalysis.verified
-                                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
-                                    : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40'
-                                }`}
-                                title="Click to view full AI Verification Report"
-                              >
-                                <Bot className="w-3.5 h-3.5" />
-                                <span>{user.payment.aiAnalysis.verified ? 'AI Verified' : 'AI Flagged'}</span>
-                                <span className="text-[10px] opacity-80">({user.payment.aiAnalysis.confidence}%)</span>
-                              </button>
-                            ) : user.payment?.proofImages && user.payment.proofImages.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => handleRunAiAnalysis(user)}
-                                disabled={analyzingEmail === user.email}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/35 border border-purple-500/40 text-purple-300 hover:text-white font-bold text-xs transition cursor-pointer shadow-sm disabled:opacity-50"
-                                title="Run Gemini AI Vision analysis on proof screenshots"
-                              >
-                                <Bot className="w-3.5 h-3.5 text-purple-400" />
-                                <span>{analyzingEmail === user.email ? 'Analyzing...' : 'AI Verify'}</span>
                               </button>
                             ) : (
                               <span className="text-[11px] text-slate-500 font-mono">No Photos</span>
@@ -2356,239 +2295,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 >
                   Close
                 </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================================= */}
-        {/* MODAL 3: AI PAYMENT PROOF ANALYSIS REPORT MODAL */}
-        {/* ========================================================================= */}
-        {viewingAiReportUser && (
-          <div
-            id="ai-report-modal-overlay"
-            className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-5"
-            onClick={() => setViewingAiReportUser(null)}
-          >
-            <div
-              id="ai-report-modal"
-              className="w-full max-w-2xl bg-[#080d21] border-2 border-purple-500/60 rounded-2xl shadow-[0_0_50px_rgba(168,85,247,0.25)] p-5 md:p-6 space-y-4 max-h-[92vh] flex flex-col relative"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-purple-500/30 shrink-0">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/50 flex items-center justify-center text-purple-300">
-                    <Bot className="w-6 h-6 text-purple-300" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-white text-base flex items-center gap-2">
-                      Gemini Vision AI Analysis Report
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 uppercase">
-                        Multimodal OCR
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-400">
-                      User: <strong className="text-white font-mono">{viewingAiReportUser.email}</strong> • {getUserDisplayName(viewingAiReportUser)}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setViewingAiReportUser(null)}
-                  className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Main Content Area */}
-              <div className="overflow-y-auto space-y-4 flex-1 pr-1 text-xs">
-                {/* Verdict Banner */}
-                {viewingAiReportUser.payment?.aiAnalysis ? (
-                  <div
-                    className={`p-4 rounded-xl border flex items-start gap-3 ${
-                      viewingAiReportUser.payment.aiAnalysis.verified
-                        ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-200'
-                        : 'bg-rose-950/40 border-rose-500/60 text-rose-200'
-                    }`}
-                  >
-                    {viewingAiReportUser.payment.aiAnalysis.verified ? (
-                      <CheckCheck className="w-6 h-6 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertTriangle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-sm uppercase tracking-wider">
-                          {viewingAiReportUser.payment.aiAnalysis.verified
-                            ? '✅ Verified Payment Proof'
-                            : '⚠️ Verification Mismatch / Review Needed'}
-                        </span>
-                        <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-black/40 border border-white/10">
-                          Confidence: {viewingAiReportUser.payment.aiAnalysis.confidence}%
-                        </span>
-                      </div>
-                      <p className="text-xs opacity-95 leading-relaxed font-sans">
-                        {viewingAiReportUser.payment.aiAnalysis.summary}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 text-center space-y-2">
-                    <p className="text-slate-300">এই পেমেন্টের এআই এনালাইসিস এখনও চালানো হয়নি।</p>
-                    <button
-                      type="button"
-                      onClick={() => handleRunAiAnalysis(viewingAiReportUser)}
-                      disabled={analyzingEmail === viewingAiReportUser.email}
-                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs inline-flex items-center gap-1.5 transition cursor-pointer"
-                    >
-                      <Bot className="w-4 h-4" />
-                      <span>{analyzingEmail === viewingAiReportUser.email ? 'বিশ্লেষণ চলছে...' : 'AI দিয়ে যাচাই করুন'}</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Match Comparison Grid */}
-                {viewingAiReportUser.payment?.aiAnalysis && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {/* TrxID */}
-                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400 text-[11px] font-semibold">TrxID Check:</span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            viewingAiReportUser.payment.aiAnalysis.trxIdMatched
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          }`}
-                        >
-                          {viewingAiReportUser.payment.aiAnalysis.trxIdMatched ? 'Matched ✓' : 'Mismatch ✗'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Claimed: <span className="text-white font-mono">{viewingAiReportUser.payment?.transactionId || 'N/A'}</span></p>
-                      <p className="text-[11px] text-slate-400">Found: <span className="text-amber-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedTrxId || 'Not found'}</span></p>
-                    </div>
-
-                    {/* Recipient */}
-                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400 text-[11px] font-semibold">Recipient Number:</span>
-                        <span
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            viewingAiReportUser.payment.aiAnalysis.recipientMatched
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                          }`}
-                        >
-                          {viewingAiReportUser.payment.aiAnalysis.recipientMatched ? 'Matched ✓' : 'Unconfirmed'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Expected: <span className="text-white font-mono">01568760651</span></p>
-                      <p className="text-[11px] text-slate-400">Found: <span className="text-cyan-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedRecipient || 'N/A'}</span></p>
-                    </div>
-
-                    {/* Channel & Amount */}
-                    <div className="p-3 rounded-xl bg-[#070b1e] border border-white/10 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-400 text-[11px] font-semibold">Channel & Amount:</span>
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                          {viewingAiReportUser.payment.aiAnalysis.detectedMethod || viewingAiReportUser.payment?.method}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400">Claimed: <span className="text-white font-mono">${viewingAiReportUser.payment?.amount} USD</span></p>
-                      <p className="text-[11px] text-slate-400">Detected: <span className="text-emerald-300 font-mono font-bold">{viewingAiReportUser.payment.aiAnalysis.extractedAmount || 'Amount visible'}</span></p>
-                    </div>
-                  </div>
-                )}
-
-                {/* AI Reasoning List */}
-                {viewingAiReportUser.payment?.aiAnalysis?.reasons && viewingAiReportUser.payment.aiAnalysis.reasons.length > 0 && (
-                  <div className="p-3.5 rounded-xl bg-[#060b1a] border border-white/10 space-y-2">
-                    <span className="text-slate-300 font-bold block text-xs flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                      এআই চেকলিস্ট ও বিশ্লেষণ পয়েন্ট:
-                    </span>
-                    <ul className="space-y-1 pl-4 list-disc text-slate-300 text-[11px] leading-relaxed">
-                      {viewingAiReportUser.payment.aiAnalysis.reasons.map((r, i) => (
-                        <li key={i}>{r}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Attached Screenshot Thumbnails */}
-                {viewingAiReportUser.payment?.proofImages && viewingAiReportUser.payment.proofImages.length > 0 && (
-                  <div className="space-y-2">
-                    <span className="text-slate-300 font-semibold text-xs block">
-                      বিশ্লেষিত পেমেন্ট স্ক্রিনশট ({viewingAiReportUser.payment.proofImages.length}টি ছবি):
-                    </span>
-                    <div className="grid grid-cols-2 gap-3">
-                      {viewingAiReportUser.payment.proofImages.map((img, i) => (
-                        <div key={i} className="rounded-xl overflow-hidden border border-white/10 bg-black/60 relative group">
-                          <img src={img} alt={`Proof ${i + 1}`} className="w-full h-36 object-contain" />
-                          <a
-                            href={img}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="absolute bottom-2 right-2 px-2 py-1 rounded bg-black/80 text-[10px] text-cyan-300 hover:text-white flex items-center gap-1 font-semibold"
-                          >
-                            <ExternalLink className="w-3 h-3" /> Zoom
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-between pt-3 border-t border-purple-500/30 shrink-0 flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleRunAiAnalysis(viewingAiReportUser)}
-                  disabled={analyzingEmail === viewingAiReportUser.email}
-                  className="px-3.5 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900 border border-purple-500/40 text-purple-200 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-                >
-                  <Bot className="w-3.5 h-3.5" />
-                  <span>{analyzingEmail === viewingAiReportUser.email ? 'বিশ্লেষণ চলছে...' : 'পুনরায় এআই চালান'}</span>
-                </button>
-
-                <div className="flex items-center gap-2">
-                  {viewingAiReportUser.status === 'pending' && onAcceptUser && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await onAcceptUser(viewingAiReportUser.email, getUserDisplayName(viewingAiReportUser));
-                        setViewingAiReportUser(null);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white font-bold text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      Accept Payment
-                    </button>
-                  )}
-                  {viewingAiReportUser.status === 'accepted' && onActivateProUser && (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        await onActivateProUser(viewingAiReportUser.email, getUserDisplayName(viewingAiReportUser));
-                        setViewingAiReportUser(null);
-                      }}
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-110 text-slate-950 font-black text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer"
-                    >
-                      <Crown className="w-3.5 h-3.5 text-amber-900" />
-                      Activate Pro Future
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setViewingAiReportUser(null)}
-                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition cursor-pointer"
-                  >
-                    Close
-                  </button>
-                </div>
               </div>
             </div>
           </div>

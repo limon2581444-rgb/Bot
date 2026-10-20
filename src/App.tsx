@@ -27,13 +27,53 @@ import {
   subscribeToAuditLogs,
 } from './lib/firebaseDb';
 import { ShieldAlert } from 'lucide-react';
-import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_DEMO_PASS, ADMIN_NUMBER } from './data/constants';
+import { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_DEMO_PASS, ADMIN_NUMBER, INITIAL_USERS } from './data/constants';
 
 export default function App() {
-  // Shared real-time users from Firebase Firestore
-  const [users, setUsers] = useState<User[]>([]);
-  const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>([]);
+  // Shared real-time users from Firebase Firestore with offline cache fallback
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const cached = localStorage.getItem('tl_persisted_users');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_USERS;
+  });
+
+  const [paymentRequests, setPaymentRequests] = useState<PaymentRequest[]>(() => {
+    try {
+      const cached = localStorage.getItem('tl_persisted_requests');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_USERS.filter((u) => u.payment && u.status === 'pending').map((u) => ({
+      id: u.email.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+      userId: u.email.toLowerCase().replace(/[^a-z0-9]/g, '_'),
+      userEmail: u.email,
+      amount: u.payment!.amount,
+      method: u.payment!.method,
+      transactionId: u.payment!.transactionId,
+      status: 'pending',
+      date: u.payment!.date,
+      proofImages: u.payment!.proofImages || [],
+      createdAt: u.createdAt || '',
+    }));
+  });
+
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLog[]>(() => {
+    try {
+      const cached = localStorage.getItem('tl_persisted_logs');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   // Current authenticated user
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -66,7 +106,7 @@ export default function App() {
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Sync session cache
+  // Sync session and data cache to localStorage
   useEffect(() => {
     try {
       if (currentUser) {
@@ -79,17 +119,57 @@ export default function App() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    try {
+      if (users.length > 0) {
+        localStorage.setItem('tl_persisted_users', JSON.stringify(users));
+      }
+    } catch {}
+  }, [users]);
+
+  useEffect(() => {
+    try {
+      if (paymentRequests.length > 0) {
+        localStorage.setItem('tl_persisted_requests', JSON.stringify(paymentRequests));
+      }
+    } catch {}
+  }, [paymentRequests]);
+
+  useEffect(() => {
+    try {
+      if (auditLogs.length > 0) {
+        localStorage.setItem('tl_persisted_logs', JSON.stringify(auditLogs));
+      }
+    } catch {}
+  }, [auditLogs]);
+
   // Real-time listener for all users & requests when on Admin Panel
   useEffect(() => {
     if (page === 'admin' || currentUser?.role === 'admin') {
       const unsubUsers = subscribeToAllUsers((firestoreUsers) => {
-        setUsers(firestoreUsers);
+        if (firestoreUsers && firestoreUsers.length > 0) {
+          setUsers((prev) => {
+            const map = new Map<string, User>();
+            for (const u of prev) map.set(u.email.toLowerCase(), u);
+            for (const u of firestoreUsers) map.set(u.email.toLowerCase(), u);
+            return Array.from(map.values());
+          });
+        }
       });
       const unsubReqs = subscribeToPaymentRequests((reqs) => {
-        setPaymentRequests(reqs);
+        if (reqs && reqs.length > 0) {
+          setPaymentRequests((prev) => {
+            const map = new Map<string, PaymentRequest>();
+            for (const r of prev) map.set((r.userEmail || '').toLowerCase(), r);
+            for (const r of reqs) map.set((r.userEmail || '').toLowerCase(), r);
+            return Array.from(map.values());
+          });
+        }
       });
       const unsubLogs = subscribeToAuditLogs((logs) => {
-        setAuditLogs(logs);
+        if (logs && logs.length > 0) {
+          setAuditLogs(logs);
+        }
       });
       return () => {
         unsubUsers();
@@ -285,38 +365,6 @@ export default function App() {
 
     try {
       const userId = currentUser.id || currentUser.email.toLowerCase().replace(/[^a-z0-9]/g, '_');
-      await submitPaymentToFirebase(userId, currentUser.email, payment);
-
-      // AI Automated Verification & Acceptance Check
-      const isAiVerified = Boolean(
-        payment.aiAnalysis?.verified === true && payment.aiAnalysis?.trxIdMatched === true
-      );
-
-      if (isAiVerified) {
-        // Automatically accept payment request in Firestore (moves from pending to accepted)
-        await acceptPaymentInFirebase(
-          currentUser.email,
-          'AI Auto-Verification Engine',
-          currentUser.name
-        );
-
-        const updatedUser: User = {
-          ...currentUser,
-          status: 'accepted',
-          proAccess: false,
-          payment,
-          acceptedDate: new Date().toLocaleString(),
-        };
-
-        setCurrentUser(updatedUser);
-        try {
-          localStorage.setItem('tl_current_session', JSON.stringify(updatedUser));
-        } catch {}
-
-        setPage('paid');
-        showToast('✨ AI ভেরিফিকেশন সফল! আপনার পেমেন্ট প্রুফ ও TrxID সঠিক পাওয়ায় এক্সেপ্ট করা হয়েছে। এডমিন অ্যাক্টিভেশনের অপেক্ষায়।');
-        return;
-      }
 
       const updatedUser: User = {
         ...currentUser,
@@ -330,8 +378,50 @@ export default function App() {
         localStorage.setItem('tl_current_session', JSON.stringify(updatedUser));
       } catch {}
 
+      // Immediately register in local state and offline cache
+      const cleanEmail = currentUser.email.toLowerCase();
+      const newReq: PaymentRequest = {
+        id: userId,
+        userId,
+        userEmail: currentUser.email,
+        amount: payment.amount,
+        method: payment.method,
+        transactionId: payment.transactionId || '',
+        status: 'pending',
+        date: payment.date,
+        proofImages: payment.proofImages || [],
+        createdAt: new Date().toISOString(),
+      };
+
+      setPaymentRequests((prev) => {
+        const existingIdx = prev.findIndex((p) => (p.userEmail || '').toLowerCase() === cleanEmail);
+        const updated = existingIdx >= 0
+          ? prev.map((p, i) => (i === existingIdx ? newReq : p))
+          : [newReq, ...prev];
+        try {
+          localStorage.setItem('tl_persisted_requests', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      setUsers((prev) => {
+        const existingIdx = prev.findIndex((u) => u.email.toLowerCase() === cleanEmail);
+        const updated = existingIdx >= 0
+          ? prev.map((u, i) => (i === existingIdx ? updatedUser : u))
+          : [updatedUser, ...prev];
+        try {
+          localStorage.setItem('tl_persisted_users', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      // Submit to Firebase
+      await submitPaymentToFirebase(userId, currentUser.email, payment).catch((fbErr) => {
+        console.warn('Firebase sync notice (saved locally):', fbErr);
+      });
+
       setPage('pending');
-      showToast('🎉 আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা হয়েছে! এডমিন পর্যালোচনার অপেক্ষায়।');
+      showToast('🎉 আপনার রিকোয়েস্ট পেন্ডিং লিস্টে জমা হয়েছে! এডমিন অ্যাপ্রুভালের অপেক্ষায়।');
     } catch (err: any) {
       console.error('Failed to submit payment:', err);
       showToast('পেমেন্ট রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');

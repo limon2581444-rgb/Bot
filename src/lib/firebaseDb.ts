@@ -18,13 +18,14 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { User, PaymentInfo, PaymentRequest, AdminAuditLog, AuditActionType, AIProofAnalysis } from '../types';
+import { User, PaymentInfo, PaymentRequest, AdminAuditLog, AuditActionType } from '../types';
 import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
   ADMIN_NUMBER,
   ADMIN_DEMO_ID,
   ADMIN_DEMO_PASS,
+  INITIAL_USERS,
 } from '../data/constants';
 
 export const USERS_COLLECTION = 'users';
@@ -402,7 +403,6 @@ export async function submitPaymentToFirebase(
           transactionId: payment.transactionId || '',
           date: payment.date,
           proofImages: proofImages,
-          ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
         },
         serverUpdated: serverTimestamp(),
       },
@@ -424,7 +424,6 @@ export async function submitPaymentToFirebase(
           transactionId: payment.transactionId || '',
           date: payment.date,
           proofImages: proofImages,
-          ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
         },
         serverUpdated: serverTimestamp(),
       });
@@ -444,51 +443,11 @@ export async function submitPaymentToFirebase(
       status: 'pending',
       date: payment.date,
       proofImages: proofImages,
-      ...(payment.aiAnalysis ? { aiAnalysis: payment.aiAnalysis } : {}),
       createdAt: nowIso,
       serverUpdated: serverTimestamp(),
     },
     { merge: true }
   );
-}
-
-/**
- * Update AI Analysis results for a payment request
- */
-export async function updateRequestAIAnalysis(
-  userEmail: string,
-  aiAnalysis: AIProofAnalysis
-): Promise<void> {
-  const cleanEmail = userEmail.trim().toLowerCase();
-  const cleanId = emailToDocId(cleanEmail);
-
-  try {
-    // Update payment request doc
-    const reqDocRef = doc(db, REQUESTS_COLLECTION, cleanId);
-    await setDoc(
-      reqDocRef,
-      {
-        aiAnalysis,
-        serverUpdated: serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-    // Update user doc
-    const userDocRef = doc(db, USERS_COLLECTION, cleanId);
-    await setDoc(
-      userDocRef,
-      {
-        payment: {
-          aiAnalysis,
-        },
-        serverUpdated: serverTimestamp(),
-      },
-      { merge: true }
-    );
-  } catch (e) {
-    console.error('Error updating AI analysis in Firestore:', e);
-  }
 }
 
 /**
@@ -1005,6 +964,9 @@ export function subscribeToAllUsers(onUpdate: (users: User[]) => void): () => vo
     usersRef,
     (querySnapshot) => {
       const usersMap = new Map<string, User>();
+      for (const iu of INITIAL_USERS) {
+        usersMap.set(iu.email.trim().toLowerCase(), { ...iu });
+      }
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
         const rawEmail = (data.email || '').trim();
@@ -1080,25 +1042,48 @@ export function subscribeToPaymentRequests(
   return onSnapshot(
     reqsRef,
     (querySnapshot) => {
-      const list: PaymentRequest[] = [];
+      const map = new Map<string, PaymentRequest>();
+
+      // Baseline pending requests
+      for (const iu of INITIAL_USERS) {
+        if (iu.payment && iu.status === 'pending') {
+          const cleanEmail = iu.email.trim().toLowerCase();
+          map.set(cleanEmail, {
+            id: emailToDocId(cleanEmail),
+            userId: emailToDocId(cleanEmail),
+            userEmail: iu.email,
+            amount: iu.payment.amount,
+            method: iu.payment.method,
+            transactionId: iu.payment.transactionId,
+            status: 'pending',
+            date: iu.payment.date,
+            proofImages: iu.payment.proofImages || [],
+            createdAt: iu.createdAt || '',
+          });
+        }
+      }
+
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          userId: data.userId,
-          userEmail: data.userEmail || '',
-          amount: data.amount || 0,
-          method: data.method || '',
-          transactionId: data.transactionId || '',
-          status: data.status || 'pending',
-          date: data.date || '',
-          proofImages: Array.isArray(data.proofImages) ? data.proofImages : [],
-          createdAt: data.createdAt || '',
-          reviewedAt: data.reviewedAt,
-          reviewedBy: data.reviewedBy,
-        });
+        const email = (data.userEmail || '').trim().toLowerCase();
+        if (email) {
+          map.set(email, {
+            id: docSnap.id,
+            userId: data.userId,
+            userEmail: data.userEmail || '',
+            amount: data.amount || 0,
+            method: data.method || '',
+            transactionId: data.transactionId || '',
+            status: data.status || 'pending',
+            date: data.date || '',
+            proofImages: Array.isArray(data.proofImages) ? data.proofImages : [],
+            createdAt: data.createdAt || '',
+            reviewedAt: data.reviewedAt,
+            reviewedBy: data.reviewedBy,
+          });
+        }
       });
-      onUpdate(list);
+      onUpdate(Array.from(map.values()));
     },
     (err) => {
       console.warn('Payment requests subscription notice:', err.message);
