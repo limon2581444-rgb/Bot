@@ -88,6 +88,8 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   const [selectedMethod, setSelectedMethod] = useState<'Binance' | 'bKash' | 'Nagad'>('Binance');
   const [transactionCode, setTransactionCode] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // View mode allows accessing the Payment Gateway anytime even if pro active or pending
+  const [viewMode, setViewMode] = useState<'gateway' | 'status'>('gateway');
 
   // 2 Proof Screenshots States
   const [proofImage1, setProofImage1] = useState<string | null>(null);
@@ -241,8 +243,40 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
   return (
     <div id="paid-bot-view" className="w-full max-w-2xl mx-auto px-4 py-8 md:py-12">
       <div className="p-6 md:p-8 rounded-2xl bg-gradient-to-br from-[#0c0824] to-[#040212] border border-[#9c28ed] shadow-[0_0_40px_rgba(156,40,237,0.2)] relative">
+        {/* Switcher Tabs when user has special status */}
+        {(isProActive || isAccepted || isPending) && (
+          <div className="flex items-center justify-center gap-2 mb-6 p-1 rounded-xl bg-[#09051d] border border-purple-800/40">
+            <button
+              type="button"
+              id="switch-to-gateway-btn"
+              onClick={() => setViewMode('gateway')}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                viewMode === 'gateway'
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-500 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              পেমেন্ট গেটওয়ে (Payment Gateway)
+            </button>
+            <button
+              type="button"
+              id="switch-to-status-btn"
+              onClick={() => setViewMode('status')}
+              className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                viewMode === 'status'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5" />
+              {isProActive ? 'আনলকড স্ক্রিপ্ট (Pro Script)' : 'রিকোয়েস্ট স্ট্যাটাস (Status)'}
+            </button>
+          </div>
+        )}
+
         {/* 1. PRO ACTIVE: Show unlocked script interface */}
-        {isProActive ? (
+        {viewMode === 'status' && isProActive ? (
           <div>
             <div className="flex items-center gap-4 mb-6">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-500 text-white shadow-lg">
@@ -300,7 +334,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </button>
             </div>
           </div>
-        ) : isAccepted ? (
+        ) : viewMode === 'status' && isAccepted ? (
           /* 2. ACCEPTED / WAITING FOR ACTIVATION VIEW: Pro Feature remains strictly LOCKED */
           <div id="paid-bot-accepted-view" className="space-y-6">
             <div className="flex items-center gap-4">
@@ -420,7 +454,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
               </button>
             </div>
           </div>
-        ) : isPending ? (
+        ) : viewMode === 'status' && isPending ? (
           /* 3. PENDING APPROVAL VIEW */
           <div id="paid-bot-pending-view" className="space-y-6">
             <div className="flex items-center gap-4">
