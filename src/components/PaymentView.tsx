@@ -206,7 +206,7 @@ export const PaymentView: React.FC<PaymentViewProps> = ({
                   rel="noopener noreferrer"
                   className="text-cyan-400 hover:text-cyan-300 font-bold underline flex items-center gap-1"
                 >
-                  Get number on Telegram (@{TELEGRAM_USERNAME})
+                  সাব্বির এর সাথে কথা বলেন (@{TELEGRAM_USERNAME})
                 </a>
               </p>
             </div>

@@ -113,10 +113,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
   const handleSelectBkash = () => {
     setSelectedMethod('bKash');
-    navigator.clipboard?.writeText(BKASH_NUMBER).catch(() => {});
-    setCopiedBkash(true);
-    showToast(`bKash Personal নম্বর: ${BKASH_NUMBER} (কপি করা হয়েছে)`);
-    setTimeout(() => setCopiedBkash(false), 2500);
+    showToast(`পেমেন্টের জন্য সাব্বির এর সাথে কথা বলেন (@${TELEGRAM_USERNAME})`);
   };
 
   const handleFileChange = async (index: 1 | 2, e: React.ChangeEvent<HTMLInputElement>) => {
@@ -700,7 +697,7 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                       ? 'border-pink-400 bg-[#2d0922] text-white shadow-[0_0_15px_rgba(255,0,150,0.35)] ring-2 ring-pink-500/30'
                       : 'border-[#1b3d63] bg-[#071832] text-slate-300 hover:bg-[#0c2447]'
                   }`}
-                  title="bKash Send Money: 01568760651"
+                  title="পেমেন্টের জন্য সাব্বির এর সাথে কথা বলেন"
                 >
                   <span>🟣</span> bKash
                 </button>
@@ -720,41 +717,37 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
                 </button>
               </div>
 
-              {/* Prominent bKash Number Box shown when bKash is selected */}
+              {/* Prominent Box shown when bKash is selected */}
               {selectedMethod === 'bKash' && (
                 <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-[#2c0823] to-[#170518] border-2 border-pink-500 shadow-[0_0_20px_rgba(236,72,153,0.3)] space-y-2.5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                     <div>
                       <span className="text-[11px] font-bold text-pink-300 uppercase tracking-wider flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-pink-400 animate-ping" />
-                        bKash Personal / Send Money নম্বর
+                        bKash পেমেন্ট নির্দেশিকা
                       </span>
-                      <div className="text-2xl sm:text-3xl font-mono font-black text-white tracking-widest mt-0.5 select-all">
-                        {BKASH_NUMBER}
+                      <div className="text-xl sm:text-2xl font-black text-white tracking-wide mt-0.5">
+                        সাব্বির এর সাথে কথা বলেন
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(BKASH_NUMBER);
-                        setCopiedBkash(true);
-                        showToast(`bKash নম্বর ${BKASH_NUMBER} কপি হয়েছে!`);
-                        setTimeout(() => setCopiedBkash(false), 2000);
-                      }}
-                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-500 active:scale-95 text-white font-bold text-xs shadow-md transition cursor-pointer"
+                    <a
+                      href={TELEGRAM_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-gradient-to-r from-sky-600 to-blue-600 hover:brightness-110 active:scale-95 text-white font-bold text-xs shadow-md transition cursor-pointer"
                     >
-                      {copiedBkash ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
-                      <span>{copiedBkash ? 'কপি হয়েছে ✓' : 'Copy Number'}</span>
-                    </button>
+                      <Send className="w-4 h-4" />
+                      <span>সাব্বির (@{TELEGRAM_USERNAME})</span>
+                    </a>
                   </div>
                   <p className="text-[11px] text-pink-200/90 leading-relaxed border-t border-pink-500/30 pt-2">
-                    💡 উপরের বিকাশ নম্বরে <strong className="text-white">Send Money</strong> করুন। এরপর নিচে আপনার TrxID লিখুন এবং স্ক্রিনশট আপলোড করে সাবমিট করুন।
+                    💡 পেমেন্ট বিস্তারিত ও ট্রানজেকশনের জন্য Telegram-এ <strong className="text-white">সাব্বির এর সাথে কথা বলেন</strong>। এরপর নিচে আপনার TrxID লিখুন এবং স্ক্রিনশট আপলোড করে সাবমিট করুন।
                   </p>
                 </div>
               )}
 
               <p className="text-[11px] text-purple-300/80 mt-2 flex items-center gap-1 flex-wrap">
-                <span>💡</span> বিকাশ বাটনে ট্যাপ করলে বিকাশ নম্বর আসবে। Binance ও Nagad-এ ট্যাপ করলে Telegram <strong className="text-cyan-300">@{TELEGRAM_USERNAME}</strong> ওপেন হবে।
+                <span>💡</span> পেমেন্টের জন্য Telegram-এ <strong className="text-cyan-300">সাব্বির এর সাথে কথা বলেন (@{TELEGRAM_USERNAME})</strong>
               </p>
             </div>
 
@@ -788,27 +781,23 @@ export const PaidBotView: React.FC<PaidBotViewProps> = ({
 
               {selectedMethod === 'bKash' && (
                 <div className="space-y-2 py-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-lg bg-pink-950/40 border border-pink-500/40">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-pink-950/40 border border-pink-500/40">
                     <div>
-                      <span className="text-[11px] text-pink-300 block font-medium">bKash Personal / Send Money Number:</span>
-                      <strong className="text-xl font-mono text-white tracking-wider">{BKASH_NUMBER}</strong>
+                      <span className="text-[11px] text-pink-300 block font-medium">bKash পেমেন্ট বিস্তারিত:</span>
+                      <strong className="text-lg font-bold text-white tracking-wide">সাব্বির এর সাথে কথা বলেন</strong>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard?.writeText(BKASH_NUMBER);
-                        setCopiedBkash(true);
-                        showToast(`bKash নম্বর ${BKASH_NUMBER} কপি হয়েছে!`);
-                        setTimeout(() => setCopiedBkash(false), 2000);
-                      }}
-                      className="px-3.5 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
+                    <a
+                      href={TELEGRAM_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-blue-600 hover:brightness-110 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
                     >
-                      {copiedBkash ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                      {copiedBkash ? 'Copied' : 'Copy Number'}
-                    </button>
+                      <Send className="w-3.5 h-3.5" />
+                      টেলিগ্রামে সাব্বির (@{TELEGRAM_USERNAME})
+                    </a>
                   </div>
                   <p className="text-[11px] text-slate-300">
-                    Send Money সম্পন্ন করার পর ট্রানজেকশন কোড (TrxID) ও পেমেন্ট স্ক্রিনশট নিচে দিন।
+                    টেলিগ্রামে সাব্বিরের সাথে কথা বলে পেমেন্ট সম্পন্ন করুন এবং নিচে TrxID ও স্ক্রিনশট দিন।
                   </p>
                 </div>
               )}
